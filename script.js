@@ -9,13 +9,13 @@ const BLOCK_GAP   = 0.05;
 
 // Palette métallique désaturée — acier, laiton, cuivre, titane
 const SHAPES = {
-  I: { coords: [[-1,0], [0,0], [1,0], [2,0]], color: 0x8ab0c8 }, // acier bleu
-  O: { coords: [[0,0], [1,0], [0,1], [1,1]],  color: 0xc8b87a }, // laiton
-  T: { coords: [[0,0], [1,0], [2,0], [1,1]],  color: 0x9c8fb5 }, // titane violet
-  S: { coords: [[1,0], [2,0], [0,1], [1,1]],  color: 0x7aad8a }, // bronze vert
-  Z: { coords: [[0,0], [1,0], [1,1], [2,1]],  color: 0xc07a7a }, // cuivre oxydé
-  J: { coords: [[0,0], [0,1], [1,1], [2,1]],  color: 0x7a8fad }, // fer bleu
-  L: { coords: [[2,0], [0,1], [1,1], [2,1]],  color: 0xb89a70 }  // bronze chaud
+  I: { coords: [[-1,0], [0,0], [1,0], [2,0]], color: 0xD4AF37 }, // Or (Gold)
+  O: { coords: [[0,0], [1,0], [0,1], [1,1]],  color: 0xB87333 }, // Cuivre (Copper)
+  T: { coords: [[0,0], [1,0], [2,0], [1,1]],  color: 0xC0C0C0 }, // Argent (Silver)
+  S: { coords: [[1,0], [2,0], [0,1], [1,1]],  color: 0x50C878 }, // Émeraude (Emerald)
+  Z: { coords: [[0,0], [1,0], [1,1], [2,1]],  color: 0x4682B4 }, // Acier Bleu (Steel)
+  J: { coords: [[0,0], [0,1], [1,1], [2,1]],  color: 0xE5E4E2 }, // Platine
+  L: { coords: [[2,0], [0,1], [1,1], [2,1]],  color: 0xCD7F32 }  // Bronze
 };
 
 const POINTS = [0, 100, 300, 500, 800];
@@ -240,35 +240,27 @@ class TetrisGame {
         return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
       }
 
-      vec3 microNormal(vec3 worldPos) {
-        float n1 = hash(worldPos * 8.0 + vec3(time * 0.2));
-        float n2 = hash(worldPos.yzx * 7.5 + vec3(0.7, 1.3, time * 0.13));
-        return normalize(vec3(n1 - 0.5, n2 - 0.5, 0.0));
+			void main() {
+				vec3 N = normalize(vNormal);
+				
+        float grain = hash(vWorldPos * 100.0) * 0.08;
+        N = normalize(N + vec3(grain));
+
+        vec3 V = normalize(cameraPosition - vWorldPos);
+        vec3 L = normalize(lightDir);
+        vec3 H = normalize(L + V);
+
+        float diff = max(dot(N, L), 0.0) * 0.4;
+        float spec = pow(max(dot(N, H), 0.0), 128.0) * 2.0;
+        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 1.5;
+
+        vec3 finalColor = baseColor * (diff + 0.2);
+        finalColor += lightColor * spec;
+        finalColor += baseColor * fresnel;
+
+        gl_FragColor = vec4(finalColor, 1.0);
       }
 
-      // Remplace ton bloc de calcul de couleur par celui-ci :
-void main() {
-    vec3 N = normalize(vNormal);
-    N = normalize(N + microNormal(vWorldPos) * 0.15);
-    vec3 L = normalize(lightDir);
-    vec3 V = normalize(cameraPosition - vWorldPos);
-
-    // ON AUGMENTE ICI : On passe de 0.15 à 0.6 pour la diffusion
-    float diff = max(dot(N, L), 0.0) * 0.6; 
-    vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), 96.0);
-    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
-
-    // Remplace la ligne vec3 color = ... par ceci :
-vec3 color = 
-    baseColor * (diff + 0.3) +             // Éclairage de base
-    baseColor * lightColor * spec * 1.5 +  // Reflets brillants
-    baseColor * fresnel * 1.2 +            // Contour lumineux
-    baseColor * 0.15;                      // Lueur interne (Glow)
-
-// On booste un peu la saturation pour que ça ne fasse pas "lavé"
-gl_FragColor = vec4(pow(color, vec3(0.8)), 1.0);
-}
     `;
 
     const vertexShader = `
@@ -300,20 +292,18 @@ gl_FragColor = vec4(pow(color, vec3(0.8)), 1.0);
   }
 
   addLights() {
-    // 1. Hemisphere Light : Simule la lumière du ciel ET du sol
-    const hemiLight = new THREE.HemisphereLight(0xffccaa, 0x000000, 0.8);
-    this.scene.add(hemiLight);
-    
-    // 2. Ambient Light : Une base légère pour conserver la lisibilité
-    const ambLight = new THREE.AmbientLight(0xffffff, 0.25); 
-    this.scene.add(ambLight);
-    
-    // 3. Directional Light : Le "projecteur" principal pour les reflets métalliques
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-    dirLight.position.set(10, 20, 15); // Décalé pour créer des reflets anguleux
-    this.scene.add(dirLight);
+   const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    dirLight.position.set(5, 15, 10);
+     this.scene.add(dirLight);
 
-    // 4. PointLight : Suit la pièce pour un éclairage dynamique
+    const ambLight = new THREE.AmbientLight(0x404050, 0.6);
+    this.scene.add(ambLight);
+
+    const rimLight = new THREE.PointLight(0xffffff, 50, 100);
+    rimLight.position.set(-10, 10, -5);
+    this.scene.add(rimLight);
+
+
     this.playerLight = new THREE.PointLight(0xffaa44, 30, 40);
     this.scene.add(this.playerLight);
   }
