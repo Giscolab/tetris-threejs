@@ -221,6 +221,11 @@ class TetrisGame {
     this.backgroundTerrain = null;
     this.backgroundCrystals = [];
     this.backgroundStars = null;
+    this.postScene = null;
+    this.postCamera = null;
+    this.raymarchMaterial = null;
+    this.gridTexture = null;
+    this.gridTextureData = new Uint8Array(GRID_WIDTH * GRID_HEIGHT * 4);
     this.rafId = null;
 
     this.boundResizeHandler = () => this.onResize();
@@ -259,6 +264,7 @@ class TetrisGame {
 
     this.addLights();
     this.createBorder();
+    this.initRaymarchRenderer();
     this.particles = new ParticleSystem(this.scene);
 
     this.initGhostMeshes();
@@ -271,6 +277,208 @@ class TetrisGame {
 
     this.nextPiece = this.getRandomPiece();
     this.spawnPiece();
+    this.updateGridTexture();
+  }
+
+  initRaymarchRenderer() {
+    this.postScene = new THREE.Scene();
+    this.postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    this.gridTexture = new THREE.DataTexture(
+      this.gridTextureData,
+      GRID_WIDTH,
+      GRID_HEIGHT,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType
+    );
+    this.gridTexture.magFilter = THREE.NearestFilter;
+    this.gridTexture.minFilter = THREE.NearestFilter;
+    this.gridTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.gridTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.gridTexture.needsUpdate = true;
+
+    this.raymarchMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        iTime: { value: 0 },
+        iResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        uGrid: { value: this.gridTexture }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float iTime;
+        uniform vec2 iResolution;
+        uniform sampler2D uGrid;
+        varying vec2 vUv;
+
+        #define MAX_STEPS 110
+        #define MAX_DIST 90.0
+        #define SURF_DIST 0.0015
+
+        float sdBox(vec3 p, vec3 b) {
+          vec3 q = abs(p) - b;
+          return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+        }
+
+        float cellFilled(vec2 cell) {
+          if (cell.x < 0.0 || cell.x >= 10.0 || cell.y < 0.0 || cell.y >= 20.0) return 0.0;
+          vec2 uv = (cell + vec2(0.5)) / vec2(10.0, 20.0);
+          return step(0.05, texture2D(uGrid, uv).a);
+        }
+
+        vec3 cellColor(vec2 cell) {
+          vec2 uv = (cell + vec2(0.5)) / vec2(10.0, 20.0);
+          return texture2D(uGrid, uv).rgb;
+        }
+
+        float mapScene(vec3 p, out vec3 albedo, out float emissive) {
+          float board = sdBox(p - vec3(4.5, 9.5, -0.45), vec3(5.6, 10.6, 0.22));
+          float floorD = p.y + 2.0;
+          float d = min(board, floorD);
+          albedo = vec3(0.08, 0.10, 0.15);
+          emissive = 0.0;
+
+          vec2 cell = floor(p.xy + vec2(0.5));
+          if (cellFilled(cell) > 0.5) {
+            vec3 center = vec3(cell.x, cell.y, 0.0);
+            float blockD = sdBox(p - center, vec3(0.47));
+            if (blockD < d) {
+              d = blockD;
+              vec3 c = cellColor(cell);
+              albedo = mix(c, vec3(0.55, 0.85, 1.0), 0.22);
+              emissive = 0.55;
+            }
+          }
+
+          return d;
+        }
+
+        float rayMarch(vec3 ro, vec3 rd, out vec3 albedo, out float emissive) {
+          float dist = 0.0;
+          for (int i = 0; i < MAX_STEPS; i++) {
+            vec3 p = ro + rd * dist;
+            vec3 stepAlbedo;
+            float stepEmissive;
+            float ds = mapScene(p, stepAlbedo, stepEmissive);
+            dist += ds;
+            if (dist > MAX_DIST || abs(ds) < SURF_DIST) {
+              albedo = stepAlbedo;
+              emissive = stepEmissive;
+              break;
+            }
+          }
+          return dist;
+        }
+
+        vec3 getNormal(vec3 p) {
+          vec2 e = vec2(0.002, 0.0);
+          vec3 a; float ea;
+          float d = mapScene(p, a, ea);
+          vec3 n = d - vec3(
+            mapScene(p - e.xyy, a, ea),
+            mapScene(p - e.yxy, a, ea),
+            mapScene(p - e.yyx, a, ea)
+          );
+          return normalize(n);
+        }
+
+        float softShadow(vec3 ro, vec3 rd, float mint, float maxt) {
+          float res = 1.0;
+          float t = mint;
+          for (int i = 0; i < 34; i++) {
+            vec3 p = ro + rd * t;
+            vec3 al; float em;
+            float h = mapScene(p, al, em);
+            res = min(res, 14.0 * h / t);
+            t += clamp(h, 0.01, 0.15);
+            if (h < 0.001 || t > maxt) break;
+          }
+          return clamp(res, 0.0, 1.0);
+        }
+
+        void main() {
+          vec2 fragCoord = vUv * iResolution;
+          vec2 uv = (fragCoord - 0.5 * iResolution) / iResolution.y;
+
+          vec3 ro = vec3(4.5 + sin(iTime * 0.2) * 0.2, 10.0, -17.0);
+          vec3 rd = normalize(vec3(uv.x, uv.y - 0.06, 1.22));
+
+          vec3 col = vec3(0.03, 0.04, 0.08);
+          vec3 albedo = vec3(0.0);
+          float emissive = 0.0;
+          float d = rayMarch(ro, rd, albedo, emissive);
+
+          if (d < MAX_DIST) {
+            vec3 p = ro + rd * d;
+            vec3 n = getNormal(p);
+            vec3 lightPos = vec3(9.0, 22.0, -8.0);
+            vec3 l = normalize(lightPos - p);
+            vec3 v = normalize(ro - p);
+            vec3 h = normalize(l + v);
+
+            float diff = max(dot(n, l), 0.0);
+            float spec = pow(max(dot(n, h), 0.0), 90.0);
+            float rim = pow(1.0 - max(dot(n, v), 0.0), 2.6);
+            float sh = softShadow(p + n * 0.02, l, 0.02, 40.0);
+
+            col = albedo * (0.14 + diff * sh * 1.25) + spec * 0.95 + rim * 0.35;
+            col += albedo * emissive * 0.7;
+
+            float fog = 1.0 - exp(-0.012 * d * d);
+            col = mix(col, vec3(0.03, 0.04, 0.08), fog);
+          }
+
+          col = col / (1.0 + col);
+          col = pow(col, vec3(0.92));
+          gl_FragColor = vec4(col, 0.98);
+        }
+      `,
+      transparent: true,
+      depthWrite: false
+    });
+
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.raymarchMaterial);
+    this.postScene.add(quad);
+  }
+
+  updateGridTexture() {
+    for (let y = 0; y < GRID_HEIGHT; y++) {
+      for (let x = 0; x < GRID_WIDTH; x++) {
+        let value = this.grid[x][y];
+
+        if (!value && this.currentPiece) {
+          for (let i = 0; i < this.currentPiece.coords.length; i++) {
+            const [bx, by] = this.currentPiece.coords[i];
+            if (this.currentPiece.x + bx === x && this.currentPiece.y + by === y) {
+              value = this.currentPiece.color;
+              break;
+            }
+          }
+        }
+
+        const idx = (y * GRID_WIDTH + x) * 4;
+        if (value) {
+          this.gridTextureData[idx] = (value >> 16) & 255;
+          this.gridTextureData[idx + 1] = (value >> 8) & 255;
+          this.gridTextureData[idx + 2] = value & 255;
+          this.gridTextureData[idx + 3] = 255;
+        } else {
+          this.gridTextureData[idx] = 0;
+          this.gridTextureData[idx + 1] = 0;
+          this.gridTextureData[idx + 2] = 0;
+          this.gridTextureData[idx + 3] = 0;
+        }
+      }
+    }
+
+    if (this.gridTexture) {
+      this.gridTexture.needsUpdate = true;
+    }
   }
 
   addLights() {
@@ -871,6 +1079,10 @@ class TetrisGame {
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.uTime.value = time / 1000;
     }
+    if (this.raymarchMaterial) {
+      this.raymarchMaterial.uniforms.iTime.value = time / 1000;
+      this.raymarchMaterial.uniforms.iResolution.value.set(window.innerWidth, window.innerHeight);
+    }
     if (this.backgroundStars) {
       this.backgroundStars.rotation.y += 0.00035;
     }
@@ -904,9 +1116,14 @@ class TetrisGame {
 
       this.updateGhostPosition();
       this.updateGraphics();
+      this.updateGridTexture();
     }
 
     this.renderer.render(this.scene, this.camera);
+    if (this.postScene && this.postCamera) {
+      this.renderer.clearDepth();
+      this.renderer.render(this.postScene, this.postCamera);
+    }
   }
 
   handleInput(e) {
@@ -967,6 +1184,9 @@ class TetrisGame {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    if (this.raymarchMaterial) {
+      this.raymarchMaterial.uniforms.iResolution.value.set(window.innerWidth, window.innerHeight);
+    }
   }
 
   updateHud({ flashScore = false } = {}) {
