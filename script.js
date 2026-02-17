@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "https://esm.sh/three";
 
 
 // --- 2. CONSTANTS & CONFIGURATION ---
@@ -322,15 +322,8 @@ class TetrisGame {
     };
 
     const fragmentShader = `
-      precision highp float;
-      precision highp int;
-
       uniform float iTime;
       uniform vec2 iResolution;
-      varying vec2 vUv;
-
-      #define BASE_ITERATIONS 100.0
-      #define ITERATIONS 50.0
 
       #define N(a) abs(dot( sin( iTime + .1*path.z + .3*path/a) , vec3(a+a)) )
 
@@ -367,7 +360,9 @@ class TetrisGame {
       }
 
       void mainImage(out vec4 o, vec2 uv) {
-          float adjust_str = ITERATIONS / 2.0 / (BASE_ITERATIONS / ITERATIONS);
+          float base_iterations = 100.;
+          float iterations = 50.;
+          float adjust_str = iterations/2./(base_iterations/iterations);
 
           o = vec4(0.);
 
@@ -380,7 +375,7 @@ class TetrisGame {
 
           vec3 path = vec3(0.);
 
-          for(float i = 0., s = 0.; i < ITERATIONS; i += 1.) {
+          for(float i = 0., s = 0.; i < iterations; i += 1.) {
               float adjust = i/adjust_str;
               vec3 added_path = vec3(uv * s, s);
               added_path *= adjust;
@@ -400,7 +395,7 @@ class TetrisGame {
       }
 
       void main() {
-          mainImage(gl_FragColor, vUv * iResolution);
+          mainImage(gl_FragColor, gl_FragCoord.xy);
       }
     `;
 
@@ -439,12 +434,17 @@ class TetrisGame {
       BLOCK_SIZE - BLOCK_GAP,
       BLOCK_SIZE - BLOCK_GAP
     );
-    this.tempBlockMaterial = new THREE.MeshStandardMaterial({ color: 0x888899 });
 
     for (let x = 0; x < GRID_WIDTH; x++) {
       meshes[x] = [];
       for (let y = 0; y < GRID_HEIGHT; y++) {
-        const mesh = new THREE.Mesh(geo, this.tempBlockMaterial);
+        // Matériau par défaut : Gris acier brillant
+        const mat = new THREE.MeshStandardMaterial({ 
+            color: 0x888899,   
+            roughness: 0.25,   
+            metalness: 0.9     
+        });
+        const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, y, 0);
         mesh.visible = false;
         meshes[x][y] = mesh;
@@ -784,7 +784,7 @@ class TetrisGame {
 
         if (val) {
           mesh.visible = true;
-          mesh.material = this.materialsByColor[val];
+          mesh.material.color.setHex(val);
         } else {
           mesh.visible = false;
         }
@@ -801,7 +801,7 @@ class TetrisGame {
         if (y >= 0 && y < GRID_HEIGHT && x >= 0 && x < GRID_WIDTH) {
           const mesh = this.meshGrid[x][y];
           mesh.visible = true;
-          mesh.material = this.materialsByColor[p.color];
+          mesh.material.color.setHex(p.color);
         }
       }
     }
@@ -818,14 +818,6 @@ class TetrisGame {
     this.particles.update(deltaTime / 1000);
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.iTime.value = time / 1000;
-    }
-
-    if (this.materialsByColor) {
-      Object.values(this.materialsByColor).forEach((mat) => {
-        if (mat.uniforms.time) {
-          mat.uniforms.time.value = time / 1000;
-        }
-      });
     }
 
     if (!this.isPaused && !this.isGameOver) {
