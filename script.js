@@ -1,6 +1,35 @@
+const THREE_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.module.min.js';
+const THREE_CDN_SHA384 = 'sha384-NKwB8sp2fZuqIEwge6UnAPbF+IlD950MxlARvyNhNXc/eMvBtfOKg8MASoHligwZ';
+
+async function importModuleWithIntegrity(url, expectedIntegrity) {
+  const response = await fetch(url, { cache: 'no-cache' });
+  if (!response.ok) {
+    throw new Error(`Unable to download module (${response.status} ${response.statusText})`);
+  }
+
+  const source = await response.text();
+  const hashBuffer = await crypto.subtle.digest('SHA-384', new TextEncoder().encode(source));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashBase64 = btoa(String.fromCharCode(...hashArray));
+  const actualIntegrity = `sha384-${hashBase64}`;
+
+  if (actualIntegrity !== expectedIntegrity) {
+    throw new Error(`Integrity mismatch for ${url}`);
+  }
+
+  const moduleBlob = new Blob([source], { type: 'text/javascript' });
+  const moduleUrl = URL.createObjectURL(moduleBlob);
+
+  try {
+    return await import(moduleUrl);
+  } finally {
+    URL.revokeObjectURL(moduleUrl);
+  }
+}
+
 (async function loadThreeJS() {
   try {
-    const THREE_MODULE = await import('https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.module.min.js');
+    const THREE_MODULE = await importModuleWithIntegrity(THREE_CDN_URL, THREE_CDN_SHA384);
     window.THREE = THREE_MODULE;
     initGame();
   } catch (error) {
@@ -74,21 +103,31 @@ class ParticleSystem {
   constructor(scene) {
     this.scene    = scene;
     this.particles = [];
+    this.materialCache = new Map();
     this.geometry = new THREE.TetrahedronGeometry(
       CONFIG.particles.tetrahedronRadius,
       CONFIG.particles.tetrahedronDetail
     );
   }
 
-  emit(position, color, count = CONFIG.particles.defaultCount) {
-    for (let i = 0; i < count; i++) {
+  getMaterial(color) {
+    if (!this.materialCache.has(color)) {
       const material = new THREE.MeshStandardMaterial({
-        color:     color,
+        color,
         roughness: 0.4,
         metalness: 0.85,
         transparent: true,
         opacity: 1
       });
+      this.materialCache.set(color, material);
+    }
+
+    return this.materialCache.get(color);
+  }
+
+  emit(position, color, count = CONFIG.particles.defaultCount) {
+    for (let i = 0; i < count; i++) {
+      const material = this.getMaterial(color);
       const mesh = new THREE.Mesh(this.geometry, material);
       mesh.position.copy(position);
       mesh.rotation.set(
@@ -114,14 +153,12 @@ class ParticleSystem {
       p.mesh.position.add(p.vel);
       p.vel.y         -= CONFIG.particles.gravity;
       p.life          -= dt * CONFIG.particles.decayRate;
-      p.mesh.material.opacity = p.life;
       p.mesh.scale.multiplyScalar(CONFIG.particles.scaleDecay);
       p.mesh.rotation.x += CONFIG.particles.rotationX;
       p.mesh.rotation.y += CONFIG.particles.rotationY;
 
       if (p.life <= 0) {
         this.scene.remove(p.mesh);
-        p.mesh.material.dispose();
         this.particles.splice(i, 1);
       }
     }
@@ -130,13 +167,14 @@ class ParticleSystem {
   clear() {
     this.particles.forEach(p => {
       this.scene.remove(p.mesh);
-      p.mesh.material.dispose();
     });
     this.particles = [];
   }
 
   destroy() {
     this.clear();
+    this.materialCache.forEach(material => material.dispose());
+    this.materialCache.clear();
     this.geometry.dispose();
   }
 }
@@ -608,8 +646,6 @@ class TetrisGame {
         if (val) {
           mesh.visible = true;
           mesh.material.color.setHex(val);
-          mesh.material.roughness = 0.3;
-          mesh.material.metalness = 0.9;
         } else {
           mesh.visible = false;
         }
@@ -627,8 +663,6 @@ class TetrisGame {
           const mesh = this.meshGrid[x][y];
           mesh.visible = true;
           mesh.material.color.setHex(p.color);
-          mesh.material.roughness = 0.15; // Plus brillant
-          mesh.material.metalness = 1.0;
         }
       }
     }
