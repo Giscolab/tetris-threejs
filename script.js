@@ -5,7 +5,15 @@
     initGame();
   } catch (error) {
     console.error("Failed to load Three.js module:", error);
-    document.body.innerHTML = '<div style="color:#c0392b; text-align:center; padding:50px; font-family:sans-serif;">Erreur: Impossible de charger Three.js.</div>';
+    const errorBox = document.createElement('div');
+    errorBox.style.color = '#c0392b';
+    errorBox.style.textAlign = 'center';
+    errorBox.style.padding = '50px';
+    errorBox.style.fontFamily = 'sans-serif';
+    errorBox.textContent = 'Erreur: Impossible de charger Three.js.';
+
+    document.body.innerHTML = '';
+    document.body.appendChild(errorBox);
   }
 })();
 
@@ -28,15 +36,51 @@ const SHAPES = {
 
 const POINTS = [0, 100, 300, 500, 800];
 
+const CONFIG = {
+  particles: {
+    tetrahedronRadius: 0.09,
+    tetrahedronDetail: 0,
+    velocityRangeXY: 0.35,
+    velocityRangeZ: 0.15,
+    gravity: 0.012,
+    decayRate: 1.8,
+    scaleDecay: 0.97,
+    rotationX: 0.04,
+    rotationY: 0.03,
+    defaultCount: 8,
+    clearLineCount: 4
+  },
+  preview: {
+    x: -3,
+    nextY: 17,
+    holdY: 3
+  },
+  gameplay: {
+    minDropInterval: 100,
+    levelDropStep: 75,
+    levelLinesStep: 10,
+    softDropScore: 1,
+    hardDropScore: 2
+  },
+  effects: {
+    lineClearFlashIntensity: 100,
+    lineClearFlashDurationMs: 100,
+    hudScoreFlashDurationMs: 450
+  }
+};
+
 // --- 3. PARTICLE SYSTEM CLASS ---
 class ParticleSystem {
   constructor(scene) {
     this.scene    = scene;
     this.particles = [];
-    this.geometry = new THREE.TetrahedronGeometry(0.09, 0);
+    this.geometry = new THREE.TetrahedronGeometry(
+      CONFIG.particles.tetrahedronRadius,
+      CONFIG.particles.tetrahedronDetail
+    );
   }
 
-  emit(position, color, count = 8) {
+  emit(position, color, count = CONFIG.particles.defaultCount) {
     for (let i = 0; i < count; i++) {
       const material = new THREE.MeshStandardMaterial({
         color:     color,
@@ -54,9 +98,9 @@ class ParticleSystem {
       );
 
       const vel = new THREE.Vector3(
-        (Math.random() - 0.5) * 0.35,
-        (Math.random() - 0.5) * 0.35,
-        (Math.random() - 0.5) * 0.15
+        (Math.random() - 0.5) * CONFIG.particles.velocityRangeXY,
+        (Math.random() - 0.5) * CONFIG.particles.velocityRangeXY,
+        (Math.random() - 0.5) * CONFIG.particles.velocityRangeZ
       );
 
       this.particles.push({ mesh, vel, life: 1.0 });
@@ -68,20 +112,32 @@ class ParticleSystem {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.mesh.position.add(p.vel);
-      p.vel.y         -= 0.012;
-      p.life          -= dt * 1.8;
+      p.vel.y         -= CONFIG.particles.gravity;
+      p.life          -= dt * CONFIG.particles.decayRate;
       p.mesh.material.opacity = p.life;
-      p.mesh.scale.multiplyScalar(0.97);
-      p.mesh.rotation.x += 0.04;
-      p.mesh.rotation.y += 0.03;
+      p.mesh.scale.multiplyScalar(CONFIG.particles.scaleDecay);
+      p.mesh.rotation.x += CONFIG.particles.rotationX;
+      p.mesh.rotation.y += CONFIG.particles.rotationY;
 
       if (p.life <= 0) {
         this.scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
         p.mesh.material.dispose();
         this.particles.splice(i, 1);
       }
     }
+  }
+
+  clear() {
+    this.particles.forEach(p => {
+      this.scene.remove(p.mesh);
+      p.mesh.material.dispose();
+    });
+    this.particles = [];
+  }
+
+  destroy() {
+    this.clear();
+    this.geometry.dispose();
   }
 }
 
@@ -115,6 +171,10 @@ class TetrisGame {
     this.ghostMeshes    = [];
     this.nextPieceMeshes = [];
     this.holdPieceMeshes = [];
+    this.rafId = null;
+
+    this.boundResizeHandler = () => this.onResize();
+    this.boundKeydownHandler = (e) => this.handleInput(e);
 
     this.init();
   }
@@ -157,8 +217,8 @@ class TetrisGame {
     this.initHoldPieceMeshes();
     this.initMeshGridScene();
 
-    window.addEventListener('resize',  () => this.onResize());
-    window.addEventListener('keydown', (e) => this.handleInput(e));
+    window.addEventListener('resize', this.boundResizeHandler);
+    window.addEventListener('keydown', this.boundKeydownHandler);
 
     this.nextPiece = this.getRandomPiece();
     this.spawnPiece();
@@ -347,15 +407,10 @@ class TetrisGame {
     this.isPaused     = false;
     this.heldPiece    = null;
 
-    const scoreEl = document.getElementById('val-score');
-    const levelEl = document.getElementById('val-level');
-    const linesEl = document.getElementById('val-lines');
     const msgEl   = document.getElementById('game-over-msg');
     const pauseEl = document.getElementById('pause-msg');
 
-    if (scoreEl) scoreEl.innerText = '0';
-    if (levelEl) levelEl.innerText = '1';
-    if (linesEl) linesEl.innerText = '0';
+    this.updateHud();
     if (msgEl)   msgEl.style.display   = 'none';
     if (pauseEl) pauseEl.style.display = 'none';
 
@@ -365,12 +420,7 @@ class TetrisGame {
       }
     }
 
-    this.particles.particles.forEach(p => {
-      this.scene.remove(p.mesh);
-      p.mesh.geometry.dispose();
-      p.mesh.material.dispose();
-    });
-    this.particles.particles = [];
+    this.particles.clear();
 
     this.nextPiece = this.getRandomPiece();
     this.spawnPiece();
@@ -412,18 +462,20 @@ class TetrisGame {
 
     const lines = linesToClear.length;
 
+    const linesToClearSet = new Set(linesToClear);
+
     if (lines > 0) {
       linesToClear.forEach(y => {
         for (let x = 0; x < GRID_WIDTH; x++) {
           const pos = new THREE.Vector3(x, y, 0);
-          this.particles.emit(pos, this.grid[x][y] || 0x8090a0, 4);
+          this.particles.emit(pos, this.grid[x][y] || 0x8090a0, CONFIG.particles.clearLineCount);
         }
       });
 
       let newGrid      = this.createEmptyGrid();
       let currentWriteY = 0;
       for (let y = 0; y < GRID_HEIGHT; y++) {
-        if (!linesToClear.includes(y)) {
+        if (!linesToClearSet.has(y)) {
           for (let x = 0; x < GRID_WIDTH; x++) {
             newGrid[x][currentWriteY] = this.grid[x][y];
           }
@@ -435,28 +487,21 @@ class TetrisGame {
       this.score        += (POINTS[lines] || 0) * this.level;
       this.linesCleared += lines;
 
-      const newLevel = Math.floor(this.linesCleared / 10) + 1;
+      const newLevel = Math.floor(this.linesCleared / CONFIG.gameplay.levelLinesStep) + 1;
       if (newLevel > this.level) {
         this.level        = newLevel;
-        this.dropInterval = Math.max(100, 1000 - (this.level - 1) * 75);
+        this.dropInterval = Math.max(
+          CONFIG.gameplay.minDropInterval,
+          1000 - (this.level - 1) * CONFIG.gameplay.levelDropStep
+        );
       }
 
-      const scoreEl = document.getElementById('val-score');
-      if (scoreEl) {
-        scoreEl.innerText = this.score;
-        scoreEl.classList.add('value-update-flash');
-        setTimeout(() => scoreEl.classList.remove('value-update-flash'), 450);
-      }
-
-      const levelEl = document.getElementById('val-level');
-      const linesEl = document.getElementById('val-lines');
-      if (levelEl) levelEl.innerText = this.level;
-      if (linesEl) linesEl.innerText = this.linesCleared;
+      this.updateHud({ flashScore: true });
 
       // Flash blanc neutre
       const base = this.playerLight.intensity;
-      this.playerLight.intensity = 100;
-      setTimeout(() => { this.playerLight.intensity = base; }, 100);
+      this.playerLight.intensity = CONFIG.effects.lineClearFlashIntensity;
+      setTimeout(() => { this.playerLight.intensity = base; }, CONFIG.effects.lineClearFlashDurationMs);
     }
   }
 
@@ -493,6 +538,9 @@ class TetrisGame {
       this.currentPiece.x = Math.floor(GRID_WIDTH / 2) - 1;
       this.currentPiece.y = GRID_HEIGHT - 2;
       if (this.currentPiece.type === 'I') this.currentPiece.x--;
+      if (this.checkCollision(0, 0, this.currentPiece)) {
+        this.gameOver();
+      }
     } else {
       this.heldPiece = {
         type:   currentType,
@@ -522,8 +570,8 @@ class TetrisGame {
 
   updateNextPieceVisuals() {
     if (!this.nextPiece) return;
-    const baseX = -3;
-    const baseY = 17;
+    const baseX = CONFIG.preview.x;
+    const baseY = CONFIG.preview.nextY;
 
     for (let i = 0; i < 4; i++) {
       const block = this.nextPiece.coords[i];
@@ -538,8 +586,8 @@ class TetrisGame {
     this.holdPieceMeshes.forEach(m => m.visible = false);
     if (!this.heldPiece) return;
 
-    const baseX = -3;
-    const baseY = 3;
+    const baseX = CONFIG.preview.x;
+    const baseY = CONFIG.preview.holdY;
 
     for (let i = 0; i < 4; i++) {
       const block = this.heldPiece.coords[i];
@@ -589,7 +637,7 @@ class TetrisGame {
   // ─── LOOP ────────────────────────────────────────────────────────────────
 
   animate(time) {
-    requestAnimationFrame((t) => this.animate(t));
+    this.rafId = requestAnimationFrame((t) => this.animate(t));
 
     const deltaTime = time - this.lastTime;
     this.lastTime   = time;
@@ -648,7 +696,11 @@ class TetrisGame {
         break;
       case 'ArrowDown':
         e.preventDefault();
-        if (!this.checkCollision(0, -1)) { this.currentPiece.y--; this.score += 1; }
+        if (!this.checkCollision(0, -1)) {
+          this.currentPiece.y--;
+          this.score += CONFIG.gameplay.softDropScore;
+          this.updateHud();
+        }
         break;
       case 'ArrowUp':
         e.preventDefault();
@@ -656,7 +708,11 @@ class TetrisGame {
         break;
       case ' ':
         e.preventDefault();
-        while (!this.checkCollision(0, -1)) { this.currentPiece.y--; this.score += 2; }
+        while (!this.checkCollision(0, -1)) {
+          this.currentPiece.y--;
+          this.score += CONFIG.gameplay.hardDropScore;
+        }
+        this.updateHud();
         this.mergePiece();
         this.dropCounter = 0;
         break;
@@ -672,6 +728,36 @@ class TetrisGame {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  updateHud({ flashScore = false } = {}) {
+    const scoreEl = document.getElementById('val-score');
+    const levelEl = document.getElementById('val-level');
+    const linesEl = document.getElementById('val-lines');
+
+    if (scoreEl) {
+      scoreEl.innerText = this.score;
+      if (flashScore) {
+        scoreEl.classList.add('value-update-flash');
+        setTimeout(() => scoreEl.classList.remove('value-update-flash'), CONFIG.effects.hudScoreFlashDurationMs);
+      }
+    }
+    if (levelEl) levelEl.innerText = this.level;
+    if (linesEl) linesEl.innerText = this.linesCleared;
+  }
+
+  destroy() {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+
+    window.removeEventListener('resize', this.boundResizeHandler);
+    window.removeEventListener('keydown', this.boundKeydownHandler);
+
+    if (this.particles) {
+      this.particles.destroy();
+    }
   }
 }
 
