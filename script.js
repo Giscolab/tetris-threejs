@@ -246,24 +246,29 @@ class TetrisGame {
         return normalize(vec3(n1 - 0.5, n2 - 0.5, 0.0));
       }
 
-      void main() {
-        vec3 N = normalize(vNormal);
-        N = normalize(N + microNormal(vWorldPos) * 0.15);
-        vec3 L = normalize(lightDir);
-        vec3 V = normalize(cameraPosition - vWorldPos);
+      // Remplace ton bloc de calcul de couleur par celui-ci :
+void main() {
+    vec3 N = normalize(vNormal);
+    N = normalize(N + microNormal(vWorldPos) * 0.15);
+    vec3 L = normalize(lightDir);
+    vec3 V = normalize(cameraPosition - vWorldPos);
 
-        float diff = max(dot(N, L), 0.0) * 0.15;
-        vec3 H = normalize(L + V);
-        float spec = pow(max(dot(N, H), 0.0), 96.0);
-        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+    // ON AUGMENTE ICI : On passe de 0.15 à 0.6 pour la diffusion
+    float diff = max(dot(N, L), 0.0) * 0.6; 
+    vec3 H = normalize(L + V);
+    float spec = pow(max(dot(N, H), 0.0), 96.0);
+    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
 
-        vec3 color =
-          baseColor * diff +
-          baseColor * lightColor * spec * 1.2 +
-          baseColor * fresnel * 0.8;
+    // Remplace la ligne vec3 color = ... par ceci :
+vec3 color = 
+    baseColor * (diff + 0.3) +             // Éclairage de base
+    baseColor * lightColor * spec * 1.5 +  // Reflets brillants
+    baseColor * fresnel * 1.2 +            // Contour lumineux
+    baseColor * 0.15;                      // Lueur interne (Glow)
 
-        gl_FragColor = vec4(color, 1.0);
-      }
+// On booste un peu la saturation pour que ça ne fasse pas "lavé"
+gl_FragColor = vec4(pow(color, vec3(0.8)), 1.0);
+}
     `;
 
     const vertexShader = `
@@ -296,7 +301,7 @@ class TetrisGame {
 
   addLights() {
     // 1. Hemisphere Light : Simule la lumière du ciel ET du sol
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x666666, 0.6);
+    const hemiLight = new THREE.HemisphereLight(0xffccaa, 0x000000, 0.8);
     this.scene.add(hemiLight);
     
     // 2. Ambient Light : Une base légère pour conserver la lisibilité
@@ -309,7 +314,7 @@ class TetrisGame {
     this.scene.add(dirLight);
 
     // 4. PointLight : Suit la pièce pour un éclairage dynamique
-    this.playerLight = new THREE.PointLight(0xffffff, 30, 40);
+    this.playerLight = new THREE.PointLight(0xffaa44, 30, 40);
     this.scene.add(this.playerLight);
   }
 
@@ -472,10 +477,12 @@ class TetrisGame {
     // C'est la clé pour ne plus avoir l'impression de jouer dans le noir.
     const backGeo = new THREE.PlaneGeometry(GRID_WIDTH, GRID_HEIGHT);
     const backMat = new THREE.MeshStandardMaterial({
-      color:     0x3a3a42, // Gris métal brossé clair
-      metalness: 0.6,
-      roughness: 0.4,
-    });
+    color: 0x1a1a1c,      // Presque noir
+    transparent: true,
+    opacity: 0.85,       // Laisse deviner le fond orange derrière
+    metalness: 0.1,
+    roughness: 0.9,
+});
     const background = new THREE.Mesh(backGeo, backMat);
     background.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.6);
     this.scene.add(background);
@@ -835,8 +842,9 @@ class TetrisGame {
         this.playerLight.position.set(
           this.currentPiece.x + 0.5,
           this.currentPiece.y + 0.5,
-          2.0 // Plus proche pour bien éclairer
+          5.0 // Plus proche pour bien éclairer
         );
+				this.playerLight.intensity = 50;
       }
 
       this.updateGhostPosition();
