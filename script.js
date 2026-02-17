@@ -385,6 +385,9 @@ class TetrisGame {
     };
 
     const fragmentShader = `
+      precision highp float;
+      precision highp int;
+
       uniform float iTime;
       uniform vec2 iResolution;
 
