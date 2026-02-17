@@ -165,6 +165,8 @@ class TetrisGame {
     this.nextPieceMeshes = [];
     this.holdPieceMeshes = [];
     this.bgMaterial = null;
+    this.materialsByColor = null;
+    this.tempBlockMaterial = null;
     this.rafId = null;
 
     this.boundResizeHandler = () => this.onResize();
@@ -179,6 +181,7 @@ class TetrisGame {
     // Scène
     this.scene = new THREE.Scene();
     this.createBackgroundShader();
+    this.initMaterials();
 
     // Caméra
     const aspect = window.innerWidth / window.innerHeight;
@@ -212,6 +215,83 @@ class TetrisGame {
 
     this.nextPiece = this.getRandomPiece();
     this.spawnPiece();
+  }
+
+  initMaterials() {
+    this.materialsByColor = {};
+    const sharedLightDirection = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
+    const sharedLightColor = new THREE.Color(1, 1, 1);
+
+    const fragmentShader = `
+      precision highp float;
+      precision highp int;
+
+      uniform vec3 baseColor;
+      uniform vec3 lightDir;
+      uniform vec3 lightColor;
+      uniform float time;
+
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+
+      float hash(vec3 p) {
+        p = fract(p * 0.3183099 + vec3(0.1, 0.17, 0.13));
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+      }
+
+      vec3 microNormal(vec3 worldPos) {
+        float n1 = hash(worldPos * 8.0 + vec3(time * 0.2));
+        float n2 = hash(worldPos.yzx * 7.5 + vec3(0.7, 1.3, time * 0.13));
+        return normalize(vec3(n1 - 0.5, n2 - 0.5, 0.0));
+      }
+
+      void main() {
+        vec3 N = normalize(vNormal);
+        N = normalize(N + microNormal(vWorldPos) * 0.15);
+        vec3 L = normalize(lightDir);
+        vec3 V = normalize(cameraPosition - vWorldPos);
+
+        float diff = max(dot(N, L), 0.0) * 0.15;
+        vec3 H = normalize(L + V);
+        float spec = pow(max(dot(N, H), 0.0), 64.0);
+        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+
+        vec3 color =
+          baseColor * diff +
+          baseColor * lightColor * spec * 1.2 +
+          baseColor * fresnel * 0.8;
+
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `;
+
+    const vertexShader = `
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `;
+
+    const colors = new Set(Object.values(SHAPES).map((shape) => shape.color));
+    colors.forEach((colorHex) => {
+      const baseColor = new THREE.Color(colorHex);
+      this.materialsByColor[colorHex] = new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 },
+          baseColor: { value: baseColor },
+          lightDir: { value: sharedLightDirection.clone() },
+          lightColor: { value: sharedLightColor.clone() }
+        },
+        vertexShader,
+        fragmentShader
+      });
+    });
   }
 
   addLights() {
@@ -856,6 +936,16 @@ class TetrisGame {
 
     if (this.particles) {
       this.particles.destroy();
+    }
+
+    if (this.materialsByColor) {
+      Object.values(this.materialsByColor).forEach((material) => material.dispose());
+      this.materialsByColor = null;
+    }
+
+    if (this.tempBlockMaterial) {
+      this.tempBlockMaterial.dispose();
+      this.tempBlockMaterial = null;
     }
   }
 }
