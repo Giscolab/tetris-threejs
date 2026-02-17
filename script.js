@@ -1,50 +1,5 @@
-const THREE_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.module.min.js';
-const THREE_CDN_SHA384 = 'sha384-NKwB8sp2fZuqIEwge6UnAPbF+IlD950MxlARvyNhNXc/eMvBtfOKg8MASoHligwZ';
+import * as THREE from 'three';
 
-async function importModuleWithIntegrity(url, expectedIntegrity) {
-  const response = await fetch(url, { cache: 'no-cache' });
-  if (!response.ok) {
-    throw new Error(`Unable to download module (${response.status} ${response.statusText})`);
-  }
-
-  const source = await response.text();
-  const hashBuffer = await crypto.subtle.digest('SHA-384', new TextEncoder().encode(source));
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashBase64 = btoa(String.fromCharCode(...hashArray));
-  const actualIntegrity = `sha384-${hashBase64}`;
-
-  if (actualIntegrity !== expectedIntegrity) {
-    throw new Error(`Integrity mismatch for ${url}`);
-  }
-
-  const moduleBlob = new Blob([source], { type: 'text/javascript' });
-  const moduleUrl = URL.createObjectURL(moduleBlob);
-
-  try {
-    return await import(moduleUrl);
-  } finally {
-    URL.revokeObjectURL(moduleUrl);
-  }
-}
-
-(async function loadThreeJS() {
-  try {
-    const THREE_MODULE = await importModuleWithIntegrity(THREE_CDN_URL, THREE_CDN_SHA384);
-    window.THREE = THREE_MODULE;
-    initGame();
-  } catch (error) {
-    console.error("Failed to load Three.js module:", error);
-    const errorBox = document.createElement('div');
-    errorBox.style.color = '#c0392b';
-    errorBox.style.textAlign = 'center';
-    errorBox.style.padding = '50px';
-    errorBox.style.fontFamily = 'sans-serif';
-    errorBox.textContent = 'Erreur: Impossible de charger Three.js.';
-
-    document.body.innerHTML = '';
-    document.body.appendChild(errorBox);
-  }
-})();
 
 // --- 2. CONSTANTS & CONFIGURATION ---
 const GRID_WIDTH  = 10;
@@ -66,14 +21,6 @@ const SHAPES = {
 const POINTS = [0, 100, 300, 500, 800];
 
 const CONFIG = {
-  environment: {
-    terrainSize: 58,
-    terrainResolution: 72,
-    crystalCount: 36,
-    starCount: 1200,
-    terrainBaseY: -5,
-    crystalColors: [0xff4d8f, 0x40f2b0, 0x58c7ff, 0xffba3b]
-  },
   particles: {
     tetrahedronRadius: 0.09,
     tetrahedronDetail: 0,
@@ -218,9 +165,6 @@ class TetrisGame {
     this.nextPieceMeshes = [];
     this.holdPieceMeshes = [];
     this.bgMaterial = null;
-    this.backgroundTerrain = null;
-    this.backgroundCrystals = [];
-    this.backgroundStars = null;
     this.rafId = null;
 
     this.boundResizeHandler = () => this.onResize();
@@ -234,10 +178,7 @@ class TetrisGame {
   init() {
     // Scène
     this.scene = new THREE.Scene();
-    this.createProceduralBackground();
-
-    // Brouillard très léger, presque inexistant pour la clarté
-    this.scene.fog = new THREE.FogExp2(0x1a1a20, 0.008);
+    this.createBackgroundShader();
 
     // Caméra
     const aspect = window.innerWidth / window.innerHeight;
@@ -293,184 +234,111 @@ class TetrisGame {
     this.scene.add(this.playerLight);
   }
 
-  createProceduralBackground() {
-    const geo = new THREE.PlaneGeometry(120, 120);
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        color1: { value: new THREE.Color(0x070912) },
-        color2: { value: new THREE.Color(0x181d2a) },
-        uTime: { value: 0 }
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 color1;
-        uniform vec3 color2;
-        uniform float uTime;
-        varying vec2 vUv;
+  createBackgroundShader() {
+    const geometry = new THREE.PlaneGeometry(120, 120);
+    const uniforms = {
+      iTime: { value: 0 },
+      iResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+    };
 
-        void main() {
-          float dist = distance(vUv, vec2(0.5, 0.45));
-          float pulse = sin(uTime * 0.35) * 0.03;
-          float vignette = smoothstep(0.1, 0.9, dist + pulse);
-          float topGlow = smoothstep(0.65, 0.2, vUv.y) * 0.08;
-          vec3 color = mix(color2, color1, vignette) + vec3(0.03, 0.04, 0.09) * topGlow;
-          gl_FragColor = vec4(color, 1.0);
-        }
-      `,
-      depthWrite: false
-    });
+    const fragmentShader = `
+      uniform float iTime;
+      uniform vec2 iResolution;
 
-    const bg = new THREE.Mesh(geo, mat);
-    bg.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -34);
-    this.scene.add(bg);
-    this.bgMaterial = mat;
+      #define N(a) abs(dot( sin( iTime + .1*path.z + .3*path/a) , vec3(a+a)) )
 
-    this.createEnvironmentTerrain();
-    this.createEnvironmentCrystals();
-    this.createEnvironmentStars();
-  }
+      float sin_adj(float a, float speed, float height_factor, float displacement) {
+          float r = sin(a * speed);
+          r *= height_factor;
+          r += displacement;
+          return r;
+      }
 
-  getTerrainHeight(x, z) {
-    return Math.sin(x * 0.28) * Math.cos(z * 0.25) * 1.9
-      + Math.sin((x + z) * 0.18) * 1.1
-      + Math.cos(z * 0.4) * 0.8;
-  }
+      float tri(float a) {
+          return mix(mod(a,1.),-mod(a,1.)+1.,step(.5,mod(a,1.)));
+      }
 
-  createEnvironmentTerrain() {
-    const width = CONFIG.environment.terrainSize;
-    const depth = CONFIG.environment.terrainSize;
-    const segments = CONFIG.environment.terrainResolution;
-    const geometry = new THREE.PlaneGeometry(width, depth, segments, segments);
-    geometry.rotateX(-Math.PI / 2);
+      float tri_adj(float a, float speed, float height_factor, float displacement) {
+          float r = tri(a * speed);
+          r *= height_factor;
+          r += displacement;
+          return r;
+      }
 
-    const positions = geometry.attributes.position;
-    const colors = [];
-    for (let i = 0; i < positions.count; i++) {
-      const ix = i * 3;
-      const x = positions.array[ix];
-      const z = positions.array[ix + 2];
-      const y = this.getTerrainHeight(x, z);
-      positions.array[ix + 1] = y;
+      vec3 color_day(float s) { return vec3(4.,2.,1.)/s; }
 
-      const heightMix = THREE.MathUtils.clamp((y + 4) / 8, 0, 1);
-      const terrainColor = new THREE.Color().setRGB(
-        0.06 + heightMix * 0.13,
-        0.08 + heightMix * 0.12,
-        0.14 + heightMix * 0.17
-      );
-      colors.push(terrainColor.r, terrainColor.g, terrainColor.b);
-    }
+      vec3 color_rainbowish(float i, float s) {
+          vec3 c = vec3(3.,1.,5.);
+          c += (1. + cos(tri_adj(iTime, .04, .5, .1)*i + vec3(2.,1.,0.)))/s;
+          return c;
+      }
 
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.computeVertexNormals();
+      vec3 color_night(float i, float s) {
+          vec3 c = vec3(3.,1.,5.);
+          c += (1. + cos(.2*i + vec3(2.,1.,0.)))/s;
+          return c;
+      }
 
-    const material = new THREE.MeshPhongMaterial({
-      vertexColors: true,
-      shininess: 20,
-      transparent: true,
-      opacity: 0.95,
+      void mainImage(out vec4 o, vec2 uv) {
+          float base_iterations = 100.;
+          float iterations = 50.;
+          float adjust_str = iterations/2./(base_iterations/iterations);
+
+          o = vec4(0.);
+
+          uv = ( (uv+uv) - iResolution.xy ) / iResolution.y;
+
+          if (abs(uv.y) > .8) {
+             o = vec4(0.);
+             return;
+          }
+
+          vec3 path = vec3(0.);
+
+          for(float i = 0., s = 0.; i < iterations; i += 1.) {
+              float adjust = i/adjust_str;
+              vec3 added_path = vec3(uv * s, s);
+              added_path *= adjust;
+              path += added_path;
+
+              s = .1 + .2 * abs( 6.-abs(path.y) - N(.08) - N(.2) - N(.6) );
+
+              vec3 added_color = mix(color_night(i, s), color_day(s), sin(iTime*.1+60.)*.5+.5);
+              added_color *= adjust;
+              o.rgb += added_color;
+          }
+
+          float lenUV = length(uv);
+          if (lenUV < 0.001) lenUV = 0.001;
+
+          o = tanh(o*o/2e6/lenUV);
+      }
+
+      void main() {
+          mainImage(gl_FragColor, gl_FragCoord.xy);
+      }
+    `;
+
+    const vertexShader = `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
       side: THREE.DoubleSide
     });
 
-    this.backgroundTerrain = new THREE.Mesh(geometry, material);
-    this.backgroundTerrain.position.set(GRID_WIDTH / 2 - 0.5, CONFIG.environment.terrainBaseY, -28);
-    this.scene.add(this.backgroundTerrain);
-  }
-
-  createEnvironmentCrystals() {
-    const centerX = GRID_WIDTH / 2 - 0.5;
-    const group = new THREE.Group();
-
-    for (let i = 0; i < CONFIG.environment.crystalCount; i++) {
-      const isCone = Math.random() > 0.45;
-      const geometry = isCone
-        ? new THREE.ConeGeometry(0.2 + Math.random() * 0.25, 1 + Math.random() * 1.4, 5)
-        : new THREE.CylinderGeometry(0.16, 0.28, 1.2 + Math.random() * 1.6, 6);
-
-      const color = CONFIG.environment.crystalColors[
-        Math.floor(Math.random() * CONFIG.environment.crystalColors.length)
-      ];
-      const material = new THREE.MeshPhongMaterial({
-        color,
-        emissive: 0x111111,
-        shininess: 70,
-        transparent: true,
-        opacity: 0.82
-      });
-
-      const crystal = new THREE.Mesh(geometry, material);
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 9 + Math.random() * 18;
-      const localX = Math.cos(angle) * radius;
-      const localZ = Math.sin(angle) * radius;
-      const terrainY = this.getTerrainHeight(localX, localZ);
-
-      crystal.position.set(
-        centerX + localX,
-        CONFIG.environment.terrainBaseY + terrainY + 1.4,
-        -28 + localZ
-      );
-      crystal.rotation.x = (Math.random() - 0.5) * 0.25;
-      crystal.rotation.z = (Math.random() - 0.5) * 0.25;
-      crystal.rotation.y = Math.random() * Math.PI;
-      crystal.userData = {
-        speed: 0.35 + Math.random() * 0.4,
-        phase: Math.random() * Math.PI * 2
-      };
-
-      this.backgroundCrystals.push(crystal);
-      group.add(crystal);
-    }
-
-    this.scene.add(group);
-  }
-
-  createEnvironmentStars() {
-    const count = CONFIG.environment.starCount;
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-    const centerX = GRID_WIDTH / 2 - 0.5;
-
-    for (let i = 0; i < count; i++) {
-      const radius = 35 + Math.random() * 40;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-
-      const x = radius * Math.sin(phi) * Math.cos(theta);
-      const y = radius * Math.sin(phi) * Math.sin(theta);
-      const z = radius * Math.cos(phi);
-
-      positions[i * 3] = centerX + x;
-      positions[i * 3 + 1] = y + 8;
-      positions[i * 3 + 2] = -25 + z;
-
-      const color = new THREE.Color().setHSL(0.56 + Math.random() * 0.2, 0.75, 0.6 + Math.random() * 0.25);
-      colors[i * 3] = color.r;
-      colors[i * 3 + 1] = color.g;
-      colors[i * 3 + 2] = color.b;
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    const material = new THREE.PointsMaterial({
-      size: 0.12,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-
-    this.backgroundStars = new THREE.Points(geometry, material);
-    this.scene.add(this.backgroundStars);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -34);
+    this.scene.add(mesh);
+    this.bgMaterial = material;
   }
 
   // ─── GRID ────────────────────────────────────────────────────────────────
@@ -869,18 +737,7 @@ class TetrisGame {
 
     this.particles.update(deltaTime / 1000);
     if (this.bgMaterial) {
-      this.bgMaterial.uniforms.uTime.value = time / 1000;
-    }
-    if (this.backgroundStars) {
-      this.backgroundStars.rotation.y += 0.00035;
-    }
-    if (this.backgroundCrystals.length > 0) {
-      const elapsed = time / 1000;
-      this.backgroundCrystals.forEach((crystal) => {
-        const scale = 1 + Math.sin(elapsed * crystal.userData.speed + crystal.userData.phase) * 0.05;
-        crystal.scale.setScalar(scale);
-        crystal.rotation.y += 0.0025;
-      });
+      this.bgMaterial.uniforms.iTime.value = time / 1000;
     }
 
     if (!this.isPaused && !this.isGameOver) {
@@ -967,6 +824,9 @@ class TetrisGame {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    if (this.bgMaterial) {
+      this.bgMaterial.uniforms.iResolution.value.set(window.innerWidth, window.innerHeight);
+    }
   }
 
   updateHud({ flashScore = false } = {}) {
@@ -1020,3 +880,6 @@ function initGame() {
     game.animate(0);
   }
 }
+
+
+initGame();
