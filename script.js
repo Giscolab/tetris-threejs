@@ -209,6 +209,7 @@ class TetrisGame {
     this.ghostMeshes    = [];
     this.nextPieceMeshes = [];
     this.holdPieceMeshes = [];
+    this.bgMaterial = null;
     this.rafId = null;
 
     this.boundResizeHandler = () => this.onResize();
@@ -222,11 +223,10 @@ class TetrisGame {
   init() {
     // Scène
     this.scene = new THREE.Scene();
-    // Fond de scène gris clair pour le "Studio"
-    this.scene.background = new THREE.Color(0x202028); 
-    
+    this.createProceduralBackground();
+
     // Brouillard très léger, presque inexistant pour la clarté
-    this.scene.fog = new THREE.FogExp2(0x202028, 0.008);
+    this.scene.fog = new THREE.FogExp2(0x1a1a20, 0.008);
 
     // Caméra
     const aspect = window.innerWidth / window.innerHeight;
@@ -280,6 +280,44 @@ class TetrisGame {
     // 4. PointLight : Suit la pièce pour un éclairage dynamique
     this.playerLight = new THREE.PointLight(0xffffff, 30, 40);
     this.scene.add(this.playerLight);
+  }
+
+  createProceduralBackground() {
+    const geo = new THREE.PlaneGeometry(100, 100);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        color1: { value: new THREE.Color(0x1a1a20) },
+        color2: { value: new THREE.Color(0x30303a) },
+        uTime: { value: 0 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 color1;
+        uniform vec3 color2;
+        uniform float uTime;
+        varying vec2 vUv;
+
+        void main() {
+          float dist = distance(vUv, vec2(0.5, 0.5));
+          float pulse = sin(uTime * 0.5) * 0.05;
+          float vignette = clamp(dist + pulse, 0.0, 1.0);
+          vec3 color = mix(color2, color1, vignette);
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `,
+      depthWrite: false
+    });
+
+    const bg = new THREE.Mesh(geo, mat);
+    bg.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -30);
+    this.scene.add(bg);
+    this.bgMaterial = mat;
   }
 
   // ─── GRID ────────────────────────────────────────────────────────────────
@@ -677,6 +715,9 @@ class TetrisGame {
     this.lastTime   = time;
 
     this.particles.update(deltaTime / 1000);
+    if (this.bgMaterial) {
+      this.bgMaterial.uniforms.uTime.value = time / 1000;
+    }
 
     if (!this.isPaused && !this.isGameOver) {
       this.dropCounter += deltaTime;
