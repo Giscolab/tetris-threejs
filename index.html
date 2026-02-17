@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Tetris 3D — jeu de blocs métalliques rendu en WebGL">
+  <title>Tetris 3D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap"
+  >
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Renderer Three.js -->
+  <div
+    id="canvas-container"
+    role="img"
+    aria-label="Plateau de jeu Tetris 3D rendu en WebGL"
+  ></div>
+
+  <!-- HUD -->
+  <aside
+    id="hud"
+    role="complementary"
+    aria-label="Interface de jeu"
+  >
+
+    <!-- Panel Hold -->
+    <section
+      id="hold-panel"
+      aria-label="Pièce en réserve (Hold)"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span class="label" aria-hidden="true">HOLD</span>
+    </section>
+
+    <!-- Stats -->
+    <section id="stats-panel" aria-label="Statistiques de la partie">
+
+      <div class="stat">
+        <span class="label" id="label-score" aria-hidden="true">SCORE</span>
+        <span
+          id="val-score"
+          role="status"
+          aria-labelledby="label-score"
+          aria-live="polite"
+          aria-atomic="true"
+        >0</span>
+      </div>
+
+      <div class="stat">
+        <span class="label" id="label-level" aria-hidden="true">LEVEL</span>
+        <span
+          id="val-level"
+          role="status"
+          aria-labelledby="label-level"
+          aria-live="polite"
+          aria-atomic="true"
+        >1</span>
+      </div>
+
+      <div class="stat">
+        <span class="label" id="label-lines" aria-hidden="true">LINES</span>
+        <span
+          id="val-lines"
+          role="status"
+          aria-labelledby="label-lines"
+          aria-live="polite"
+          aria-atomic="true"
+        >0</span>
+      </div>
+
+    </section>
+
+    <!-- Panel Next -->
+    <section
+      id="next-panel"
+      aria-label="Prochaine pièce"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span class="label" aria-hidden="true">NEXT</span>
+    </section>
+
+  </aside>
+
+  <!-- Game Over -->
+  <div
+    id="game-over-msg"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="game-over-title"
+    aria-describedby="game-over-desc"
+    hidden
+  >
+    <h2 id="game-over-title">GAME OVER</h2>
+    <p id="game-over-desc">
+      Appuie sur&nbsp;<kbd aria-label="touche Espace">ESPACE</kbd>&nbsp;pour rejouer
+    </p>
+  </div>
+
+  <!-- Pause -->
+  <div
+    id="pause-msg"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="pause-title"
+    aria-describedby="pause-desc"
+    hidden
+  >
+    <h2 id="pause-title">PAUSE</h2>
+    <p id="pause-desc">
+      Appuie sur&nbsp;<kbd aria-label="touche P">P</kbd>&nbsp;pour continuer
+    </p>
+  </div>
+
+  <!-- Modal démarrage -->
+  <div
+    id="start-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="modal-title"
+  >
+    <h1 id="modal-title" aria-label="Tetris 3D">TETRIS 3D</h1>
+
+    <nav aria-label="Contrôles du jeu">
+      <ul role="list">
+        <li><kbd aria-label="flèche gauche">←</kbd> <kbd aria-label="flèche droite">→</kbd> : Déplacer</li>
+        <li><kbd aria-label="flèche haut">↑</kbd> : Rotation</li>
+        <li><kbd aria-label="flèche bas">↓</kbd> : Descente douce</li>
+        <li><kbd aria-label="touche Espace">Espace</kbd> : Drop instantané</li>
+        <li><kbd>C</kbd> : Hold</li>
+        <li><kbd>P</kbd> : Pause</li>
+      </ul>
+    </nav>
+
+    <button
+      id="play-button"
+      type="button"
+      aria-label="Démarrer la partie"
+      autofocus
+    >JOUER</button>
+
+  </div>
+
+  <script src="script.js" type="module"></script>
+</body>
+</html>
