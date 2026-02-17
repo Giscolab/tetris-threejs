@@ -247,6 +247,8 @@ class TetrisGame {
 
     const fragmentShader = `
       precision highp float;
+      precision highp int;
+
       uniform float time;
       uniform float veinSpeed;
       uniform vec3 veinColor;
@@ -254,6 +256,7 @@ class TetrisGame {
       uniform vec3 baseColor;
       uniform vec2 veinResolution;
       uniform sampler2D randomTexture;
+
       varying vec2 vUv;
 
       vec3 saturate(vec3 i) {
@@ -264,8 +267,8 @@ class TetrisGame {
         return clamp(i, 0.0, 1.0);
       }
 
-      float expCurve(float inValue, float lv) {
-        return sign(0.5 - inValue) * (exp(-abs(inValue - 0.5) * lv) - 1.0) * 0.5 + 0.5;
+      float expCurve(float x, float lv) {
+        return sign(0.5 - x) * (exp(-abs(x - 0.5) * lv) - 1.0) * 0.5 + 0.5;
       }
 
       vec4 noise(vec2 uv, vec2 mul, vec2 off, float iter, float lacu) {
@@ -273,8 +276,8 @@ class TetrisGame {
         for (float i = 0.0; i < 99.0; i += 1.0) {
           vec2 uv0 = (uv * mul + off) * 0.01 * exp(i * lacu) + time * veinSpeed * i * 0.01;
           vec2 uv1 = ((uv + vec2(1.0, 0.0)) * mul + off) * 0.01 * exp(i * lacu) + time * veinSpeed * i * 0.01;
-          vec4 tex0 = texture(randomTexture, uv0);
-          vec4 tex1 = texture(randomTexture, uv1);
+          vec4 tex0 = texture2D(randomTexture, uv0);
+          vec4 tex1 = texture2D(randomTexture, uv1);
           vec4 tex = mix(tex1, tex0, expCurve(uv.x, 10.0));
           sum += tex / pow(2.0, i + 1.0);
           if (iter < i) {
