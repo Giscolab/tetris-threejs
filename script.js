@@ -254,7 +254,7 @@ class TetrisGame {
 
         float diff = max(dot(N, L), 0.0) * 0.15;
         vec3 H = normalize(L + V);
-        float spec = pow(max(dot(N, H), 0.0), 64.0);
+        float spec = pow(max(dot(N, H), 0.0), 96.0);
         float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
 
         vec3 color =
@@ -296,12 +296,11 @@ class TetrisGame {
 
   addLights() {
     // 1. Hemisphere Light : Simule la lumière du ciel ET du sol
-    // Intensité montée à 2.0 pour inonder la scène de lumière blanche
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x888888, 2.0);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x666666, 0.6);
     this.scene.add(hemiLight);
     
-    // 2. Ambient Light : Une base de lumière absolue sans direction (pas d'ombres noires)
-    const ambLight = new THREE.AmbientLight(0xffffff, 1.5); 
+    // 2. Ambient Light : Une base légère pour conserver la lisibilité
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.25); 
     this.scene.add(ambLight);
     
     // 3. Directional Light : Le "projecteur" principal pour les reflets métalliques
@@ -438,12 +437,7 @@ class TetrisGame {
     for (let x = 0; x < GRID_WIDTH; x++) {
       meshes[x] = [];
       for (let y = 0; y < GRID_HEIGHT; y++) {
-        // Matériau par défaut : Gris acier brillant
-        const mat = new THREE.MeshStandardMaterial({ 
-            color: 0x888899,   
-            roughness: 0.25,   
-            metalness: 0.9     
-        });
+        const mat = new THREE.MeshBasicMaterial({ visible: false });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, y, 0);
         mesh.visible = false;
@@ -784,7 +778,7 @@ class TetrisGame {
 
         if (val) {
           mesh.visible = true;
-          mesh.material.color.setHex(val);
+          mesh.material = this.materialsByColor[val];
         } else {
           mesh.visible = false;
         }
@@ -801,7 +795,7 @@ class TetrisGame {
         if (y >= 0 && y < GRID_HEIGHT && x >= 0 && x < GRID_WIDTH) {
           const mesh = this.meshGrid[x][y];
           mesh.visible = true;
-          mesh.material.color.setHex(p.color);
+          mesh.material = this.materialsByColor[p.color];
         }
       }
     }
@@ -818,6 +812,12 @@ class TetrisGame {
     this.particles.update(deltaTime / 1000);
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.iTime.value = time / 1000;
+    }
+
+    if (this.materialsByColor) {
+      for (const mat of Object.values(this.materialsByColor)) {
+        mat.uniforms.time.value = time * 0.001;
+      }
     }
 
     if (!this.isPaused && !this.isGameOver) {
