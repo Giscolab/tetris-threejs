@@ -288,7 +288,8 @@ class TetrisGame {
       }
 
       void main() {
-        vec2 uv = mod(vUv.xy / veinResolution, 1.0);
+        vec2 safeResolution = max(veinResolution, vec2(0.0001));
+        vec2 uv = mod(vUv.xy / safeResolution, 1.0);
         uv = mod(uv + vec2(0.5, 0.0), 1.0);
 
         vec3 col1 = vec3(0.0);
@@ -390,6 +391,10 @@ class TetrisGame {
 
       uniform float iTime;
       uniform vec2 iResolution;
+      varying vec2 vUv;
+
+      #define BASE_ITERATIONS 100.0
+      #define ITERATIONS 50.0
 
       #define N(a) abs(dot( sin( iTime + .1*path.z + .3*path/a) , vec3(a+a)) )
 
@@ -426,9 +431,7 @@ class TetrisGame {
       }
 
       void mainImage(out vec4 o, vec2 uv) {
-          float base_iterations = 100.;
-          float iterations = 50.;
-          float adjust_str = iterations/2./(base_iterations/iterations);
+          float adjust_str = ITERATIONS / 2.0 / (BASE_ITERATIONS / ITERATIONS);
 
           o = vec4(0.);
 
@@ -441,7 +444,7 @@ class TetrisGame {
 
           vec3 path = vec3(0.);
 
-          for(float i = 0., s = 0.; i < iterations; i += 1.) {
+          for(float i = 0., s = 0.; i < ITERATIONS; i += 1.) {
               float adjust = i/adjust_str;
               vec3 added_path = vec3(uv * s, s);
               added_path *= adjust;
@@ -461,7 +464,7 @@ class TetrisGame {
       }
 
       void main() {
-          mainImage(gl_FragColor, gl_FragCoord.xy);
+          mainImage(gl_FragColor, vUv * iResolution);
       }
     `;
 
