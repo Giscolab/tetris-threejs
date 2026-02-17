@@ -165,6 +165,9 @@ class TetrisGame {
     this.nextPieceMeshes = [];
     this.holdPieceMeshes = [];
     this.bgMaterial = null;
+    this.randomTexture = null;
+    this.materialsByColor = null;
+    this.tempBlockMaterial = null;
     this.rafId = null;
 
     this.boundResizeHandler = () => this.onResize();
@@ -179,6 +182,8 @@ class TetrisGame {
     // Scène
     this.scene = new THREE.Scene();
     this.createBackgroundShader();
+    this.randomTexture = this.createRandomTexture();
+    this.initMaterials();
 
     // Caméra
     const aspect = window.innerWidth / window.innerHeight;
@@ -212,6 +217,141 @@ class TetrisGame {
 
     this.nextPiece = this.getRandomPiece();
     this.spawnPiece();
+  }
+
+  createRandomTexture() {
+    const size = 256;
+    const data = new Uint8Array(size * size * 4);
+
+    for (let i = 0; i < size * size; i++) {
+      const val = Math.floor(Math.random() * 256);
+      data[i * 4] = val;
+      data[i * 4 + 1] = val;
+      data[i * 4 + 2] = val;
+      data[i * 4 + 3] = 255;
+    }
+
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    texture.needsUpdate = true;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    return texture;
+  }
+
+  initMaterials() {
+    this.materialsByColor = {};
+    const veinSpeed = 0.5;
+    const veinColor = new THREE.Color(0xff0000);
+    const veinBrightness = 1.0;
+    const veinResolution = new THREE.Vector2(1.0, 1.0);
+
+    const fragmentShader = `
+      precision highp float;
+      uniform float time;
+      uniform float veinSpeed;
+      uniform vec3 veinColor;
+      uniform float veinBrightness;
+      uniform vec3 baseColor;
+      uniform vec2 veinResolution;
+      uniform sampler2D randomTexture;
+      varying vec2 vUv;
+
+      vec3 saturate(vec3 i) {
+        return clamp(i, 0.0, 1.0);
+      }
+
+      float saturate(float i) {
+        return clamp(i, 0.0, 1.0);
+      }
+
+      float expCurve(float inValue, float lv) {
+        return sign(0.5 - inValue) * (exp(-abs(inValue - 0.5) * lv) - 1.0) * 0.5 + 0.5;
+      }
+
+      vec4 noise(vec2 uv, vec2 mul, vec2 off, float iter, float lacu) {
+        vec4 sum = vec4(0.0);
+        for (float i = 0.0; i < 99.0; i += 1.0) {
+          vec2 uv0 = (uv * mul + off) * 0.01 * exp(i * lacu) + time * veinSpeed * i * 0.01;
+          vec2 uv1 = ((uv + vec2(1.0, 0.0)) * mul + off) * 0.01 * exp(i * lacu) + time * veinSpeed * i * 0.01;
+          vec4 tex0 = texture(randomTexture, uv0);
+          vec4 tex1 = texture(randomTexture, uv1);
+          vec4 tex = mix(tex1, tex0, expCurve(uv.x, 10.0));
+          sum += tex / pow(2.0, i + 1.0);
+          if (iter < i) {
+            break;
+          }
+        }
+        return sum;
+      }
+
+      void main() {
+        vec2 uv = mod(vUv.xy / veinResolution, 1.0);
+        uv = mod(uv + vec2(0.5, 0.0), 1.0);
+
+        vec3 col1 = vec3(0.0);
+        float line = 0.0;
+
+        for (float i = 0.0; i < 8.5; i += 1.0) {
+          vec2 mul = vec2(exp(i * 0.3));
+          vec2 off = vec2(i * 423.1);
+
+          float lineL = 1.0 - abs(noise(uv, mul * vec2(2.0, 1.5), off, 2.0, 0.4).x - 0.5) * 2.0;
+          float lineS = 1.0 - abs(noise(uv, mul * vec2(14.0), off + 10.0, 6.0, 0.7).x - 0.5) * 2.0;
+
+          float lineT = expCurve(pow(lineL, 200.0), 7.0);
+          lineT += pow(lineL, 12.0) * expCurve(pow(lineS, 40.0), 10.0);
+          lineT = saturate(lineT);
+          lineT *= expCurve(noise(uv, mul * 7.0, off + 20.0, 6.0, 1.0).x * 0.88, 20.0);
+
+          line += lineT * exp(-i * 0.1);
+        }
+
+        line = saturate(line);
+
+        col1 = vec3(0.5) * baseColor;
+
+        col1 = mix(
+          col1,
+          baseColor * 0.8,
+          expCurve(noise(uv, vec2(4.0), vec2(40.0), 5.0, 0.7).x * 0.7, 14.0)
+        );
+
+        col1 = mix(
+          col1,
+          baseColor * 0.8,
+          expCurve(noise(uv, vec2(4.0), vec2(50.0), 5.0, 0.7).x * 0.7, 5.0) * 0.7
+        );
+
+        col1 = mix(col1, veinColor * veinBrightness, line);
+        gl_FragColor = vec4(col1, 1.0);
+      }
+    `;
+
+    const vertexShader = `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    const colors = new Set(Object.values(SHAPES).map((shape) => shape.color));
+    colors.forEach((colorHex) => {
+      const baseColor = new THREE.Color(colorHex);
+      this.materialsByColor[colorHex] = new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 },
+          veinSpeed: { value: veinSpeed },
+          veinColor: { value: veinColor },
+          veinBrightness: { value: veinBrightness },
+          baseColor: { value: baseColor },
+          veinResolution: { value: veinResolution },
+          randomTexture: { value: this.randomTexture }
+        },
+        vertexShader,
+        fragmentShader
+      });
+    });
   }
 
   addLights() {
@@ -354,17 +494,12 @@ class TetrisGame {
       BLOCK_SIZE - BLOCK_GAP,
       BLOCK_SIZE - BLOCK_GAP
     );
+    this.tempBlockMaterial = new THREE.MeshStandardMaterial({ color: 0x888899 });
 
     for (let x = 0; x < GRID_WIDTH; x++) {
       meshes[x] = [];
       for (let y = 0; y < GRID_HEIGHT; y++) {
-        // Matériau par défaut : Gris acier brillant
-        const mat = new THREE.MeshStandardMaterial({ 
-            color: 0x888899,   
-            roughness: 0.25,   
-            metalness: 0.9     
-        });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new THREE.Mesh(geo, this.tempBlockMaterial);
         mesh.position.set(x, y, 0);
         mesh.visible = false;
         meshes[x][y] = mesh;
@@ -704,7 +839,7 @@ class TetrisGame {
 
         if (val) {
           mesh.visible = true;
-          mesh.material.color.setHex(val);
+          mesh.material = this.materialsByColor[val];
         } else {
           mesh.visible = false;
         }
@@ -721,7 +856,7 @@ class TetrisGame {
         if (y >= 0 && y < GRID_HEIGHT && x >= 0 && x < GRID_WIDTH) {
           const mesh = this.meshGrid[x][y];
           mesh.visible = true;
-          mesh.material.color.setHex(p.color);
+          mesh.material = this.materialsByColor[p.color];
         }
       }
     }
@@ -738,6 +873,14 @@ class TetrisGame {
     this.particles.update(deltaTime / 1000);
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.iTime.value = time / 1000;
+    }
+
+    if (this.materialsByColor) {
+      Object.values(this.materialsByColor).forEach((mat) => {
+        if (mat.uniforms.time) {
+          mat.uniforms.time.value = time / 1000;
+        }
+      });
     }
 
     if (!this.isPaused && !this.isGameOver) {
@@ -856,6 +999,21 @@ class TetrisGame {
 
     if (this.particles) {
       this.particles.destroy();
+    }
+
+    if (this.materialsByColor) {
+      Object.values(this.materialsByColor).forEach((material) => material.dispose());
+      this.materialsByColor = null;
+    }
+
+    if (this.randomTexture) {
+      this.randomTexture.dispose();
+      this.randomTexture = null;
+    }
+
+    if (this.tempBlockMaterial) {
+      this.tempBlockMaterial.dispose();
+      this.tempBlockMaterial = null;
     }
   }
 }
