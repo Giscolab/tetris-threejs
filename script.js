@@ -206,6 +206,8 @@ class TetrisGame {
     this.isGameOver = false;
 
     this.particles      = null;
+    this.pmremGenerator = null;
+    this.environmentMap = null;
     this.ghostMeshes    = [];
     this.nextPieceMeshes = [];
     this.holdPieceMeshes = [];
@@ -231,8 +233,8 @@ class TetrisGame {
     // Caméra
     const aspect = window.innerWidth / window.innerHeight;
     this.camera  = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-    this.camera.position.set(4.5, 10, 25);
-    this.camera.lookAt(4.5, 10, 0);
+    this.camera.position.set(7, 12, 22);
+    this.camera.lookAt(4.5, 9, 0);
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -241,6 +243,11 @@ class TetrisGame {
     this.renderer.outputColorSpace  = THREE.SRGBColorSpace;
     this.renderer.toneMapping       = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2; // Légère augmentation d'exposition
+
+    // Génère des reflets dynamiques basés sur la scène
+    this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+    this.environmentMap = this.pmremGenerator.fromScene(new THREE.Scene());
+    this.scene.environment = this.environmentMap.texture;
 
     const container = document.getElementById('canvas-container');
     if (container) container.appendChild(this.renderer.domElement);
@@ -357,9 +364,9 @@ class TetrisGame {
       BLOCK_SIZE - BLOCK_GAP
     );
     const mat = new THREE.MeshBasicMaterial({
-      color:       0x000000, // Noir pour contraster avec le fond gris
+      color:       0xffffff, // Blanc discret pour une projection type hologramme
       transparent: true,
-      opacity:     0.15,
+      opacity:     0.05,
       wireframe:   true
     });
 
@@ -791,6 +798,16 @@ class TetrisGame {
 
     if (this.particles) {
       this.particles.destroy();
+    }
+
+    if (this.environmentMap) {
+      this.environmentMap.dispose();
+      this.environmentMap = null;
+    }
+
+    if (this.pmremGenerator) {
+      this.pmremGenerator.dispose();
+      this.pmremGenerator = null;
     }
   }
 }
