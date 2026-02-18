@@ -39,9 +39,8 @@ const CONFIG = {
     clearLineCount: 4
   },
   preview: {
-    x: -3,
-    nextY: 17,
-    holdY: 3
+    nextAnchor: new THREE.Vector3(GRID_WIDTH + 0.8, GRID_HEIGHT - 1.5, -0.2),
+    nextScale: 0.8
   },
   gameplay: {
     minDropInterval: 100,
@@ -158,8 +157,6 @@ class TetrisGame {
 
     this.currentPiece = null;
     this.nextPiece    = null;
-    this.heldPiece    = null;
-    this.canHold      = true;
 
     this.score        = 0;
     this.level        = 1;
@@ -175,9 +172,9 @@ class TetrisGame {
     this.particles      = null;
     this.ghostMeshes    = [];
     this.nextPieceMeshes = [];
-    this.holdPieceMeshes = [];
     this.bgMaterial = null;
     this.materialsByColor = null;
+    this.animatedMaterials = [];
     this.tempBlockMaterial = null;
     this.rafId = null;
 
@@ -189,6 +186,10 @@ class TetrisGame {
 
     this.pileBouncePhase = 0;
     this.pileBounceAmplitude = 0;
+    this.chassisVibrationPhase = 0;
+    this.chassisVibrationAmplitude = 0;
+    this.chassisNeutralFrameY = 0;
+    this.chassisNeutralBackY = 0;
 
     this.hitStopTimer = 0;
     this.pendingLock = null;
@@ -197,9 +198,11 @@ class TetrisGame {
     this.currentPieceSquashIntensity = 0;
     this.currentPieceTilt = new THREE.Quaternion();
     this.tempEuler = new THREE.Euler();
+    this.nextPreviewOffset = new THREE.Vector3();
 
     this.boundResizeHandler = () => this.onResize();
     this.boundKeydownHandler = (e) => this.handleInput(e);
+    this.boundAnimate = (t) => this.animate(t);
 
     this.init();
   }
@@ -239,7 +242,6 @@ class TetrisGame {
 
     this.initGhostMeshes();
     this.initNextPieceMeshes();
-    this.initHoldPieceMeshes();
     this.initMeshGridScene();
 
     window.addEventListener('resize', this.boundResizeHandler);
@@ -251,6 +253,7 @@ class TetrisGame {
 
 initMaterials() {
     this.materialsByColor = {};
+    this.animatedMaterials = [];
     const sharedLightDirection = new THREE.Vector3(5.0, 10.0, 7.0).normalize();
 
     const vertexShader = `
@@ -333,6 +336,7 @@ initMaterials() {
           vertexShader,
           fragmentShader
         });
+        this.animatedMaterials.push(this.materialsByColor[colorHex]);
       }
     });
   }
@@ -576,6 +580,7 @@ createBorder() {
         })
     );
     this.gridFrame.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.1);
+    this.chassisNeutralFrameY = this.gridFrame.position.y;
     group.add(this.gridFrame);
 
     // 2. LE FOND PHYSIQUE (PLAQUE DE MÉTAL BROSSÉ)
@@ -593,6 +598,7 @@ createBorder() {
 
     this.gridBack = new THREE.Mesh(backGeo, backMat);
     this.gridBack.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.45);
+    this.chassisNeutralBackY = this.gridBack.position.y;
     group.add(this.gridBack);
 
     // 3. LA GRILLE DE MESURE (OVERLAY TECHNIQUE)
@@ -646,21 +652,6 @@ createBorder() {
     }
   }
 
-  initHoldPieceMeshes() {
-    const geo = new THREE.BoxGeometry(
-      BLOCK_SIZE - BLOCK_GAP,
-      BLOCK_SIZE - BLOCK_GAP,
-      BLOCK_SIZE - BLOCK_GAP
-    );
-    const fallbackMaterial = this.materialsByColor[SHAPES.I.color];
-    for (let i = 0; i < 4; i++) {
-      const mesh = new THREE.Mesh(geo, fallbackMaterial);
-      mesh.visible = false;
-      this.scene.add(mesh);
-      this.holdPieceMeshes.push(mesh);
-    }
-  }
-
   // ─── PIECE LOGIC ─────────────────────────────────────────────────────────
 
   getRandomPiece() {
@@ -676,8 +667,6 @@ createBorder() {
   spawnPiece() {
     this.currentPiece = this.nextPiece || this.getRandomPiece();
     this.nextPiece    = this.getRandomPiece();
-    this.canHold      = true;
-
     this.currentPiece.x = Math.floor(GRID_WIDTH / 2) - 1;
     this.currentPiece.y = GRID_HEIGHT - 2;
     if (this.currentPiece.type === 'I') this.currentPiece.x--;
@@ -706,8 +695,6 @@ createBorder() {
     this.dropInterval = 1000;
     this.isGameOver   = false;
     this.isPaused     = false;
-    this.heldPiece    = null;
-
     const msgEl   = document.getElementById('game-over-msg');
     const pauseEl = document.getElementById('pause-msg');
 
@@ -754,6 +741,7 @@ createBorder() {
     const impactPower = Math.max(0.15, Math.min(1.5, dropDistance / GRID_HEIGHT));
     this.cameraShakeAmplitude += impactPower * (major ? 1.45 : 0.8);
     this.pileBounceAmplitude += impactPower * (major ? 0.32 : 0.18);
+    this.chassisVibrationAmplitude += impactPower * (major ? 0.2 : 0.1);
     this.currentPieceSquashTimer = CONFIG.effects.squashDuration;
     this.currentPieceSquashIntensity = impactPower * (major ? 0.22 : 0.12);
     this.tempEuler.set(
@@ -762,7 +750,9 @@ createBorder() {
       (Math.random() - 0.5) * impactPower * 0.04
     );
     this.currentPieceTilt.setFromEuler(this.tempEuler);
-    this.hitStopTimer = Math.max(this.hitStopTimer, CONFIG.effects.hitStopDuration);
+    if (major) {
+      this.hitStopTimer = Math.max(this.hitStopTimer, CONFIG.effects.hitStopDuration);
+    }
   }
 
   queuePieceLock({ dropDistance = 1, major = false } = {}) {
@@ -785,6 +775,13 @@ createBorder() {
     const pileDamping = Math.exp(-CONFIG.effects.pileBounceDamping * deltaSeconds);
     this.pileBounceAmplitude *= pileDamping;
     this.pileBouncePhase += deltaSeconds * CONFIG.effects.pileBounceFrequency;
+
+    const chassisDamping = Math.exp(-12 * deltaSeconds);
+    this.chassisVibrationAmplitude *= chassisDamping;
+    this.chassisVibrationPhase += deltaSeconds * 52;
+    const chassisOffsetY = Math.sin(this.chassisVibrationPhase) * this.chassisVibrationAmplitude;
+    if (this.gridFrame) this.gridFrame.position.y = this.chassisNeutralFrameY + chassisOffsetY;
+    if (this.gridBack) this.gridBack.position.y = this.chassisNeutralBackY + chassisOffsetY * 0.7;
 
     if (this.currentPiece) {
       const follow = 1 - Math.exp(-deltaSeconds / CONFIG.effects.lateralFollow);
@@ -867,37 +864,6 @@ createBorder() {
     if (!valid) this.currentPiece.coords = backupCoords;
   }
 
-  holdPiece() {
-    if (!this.canHold) return;
-    this.canHold = false;
-    const currentType = this.currentPiece.type;
-
-    if (this.heldPiece) {
-      const temp   = this.heldPiece;
-      this.heldPiece = {
-        type:   currentType,
-        coords: SHAPES[currentType].coords.map(c => [...c]),
-        color:  SHAPES[currentType].color
-      };
-      this.currentPiece   = temp;
-      this.currentPiece.x = Math.floor(GRID_WIDTH / 2) - 1;
-      this.currentPiece.y = GRID_HEIGHT - 2;
-      if (this.currentPiece.type === 'I') this.currentPiece.x--;
-      if (this.checkCollision(0, 0, this.currentPiece)) {
-        this.gameOver();
-      }
-    } else {
-      this.heldPiece = {
-        type:   currentType,
-        coords: SHAPES[currentType].coords.map(c => [...c]),
-        color:  SHAPES[currentType].color
-      };
-      this.spawnPiece();
-    }
-
-    this.updateHoldPieceVisuals();
-  }
-
   // ─── VISUALS ─────────────────────────────────────────────────────────────
 
   updateGhostPosition() {
@@ -915,30 +881,19 @@ createBorder() {
 
   updateNextPieceVisuals() {
     if (!this.nextPiece) return;
-    const baseX = CONFIG.preview.x;
-    const baseY = CONFIG.preview.nextY;
+    const anchor = CONFIG.preview.nextAnchor;
+    this.nextPreviewOffset.set(-1.1, -0.8, 0);
 
     for (let i = 0; i < 4; i++) {
       const block = this.nextPiece.coords[i];
       const mesh  = this.nextPieceMeshes[i];
-      mesh.position.set(baseX + block[0], baseY + block[1], 0);
+      mesh.position.set(
+        anchor.x + this.nextPreviewOffset.x + block[0] * CONFIG.preview.nextScale,
+        anchor.y + this.nextPreviewOffset.y + block[1] * CONFIG.preview.nextScale,
+        anchor.z
+      );
+      mesh.scale.setScalar(CONFIG.preview.nextScale);
       mesh.material = this.materialsByColor[this.nextPiece.color];
-      mesh.visible = true;
-    }
-  }
-
-  updateHoldPieceVisuals() {
-    this.holdPieceMeshes.forEach(m => m.visible = false);
-    if (!this.heldPiece) return;
-
-    const baseX = CONFIG.preview.x;
-    const baseY = CONFIG.preview.holdY;
-
-    for (let i = 0; i < 4; i++) {
-      const block = this.heldPiece.coords[i];
-      const mesh  = this.holdPieceMeshes[i];
-      mesh.position.set(baseX + block[0], baseY + block[1], 0);
-      mesh.material = this.materialsByColor[this.heldPiece.color];
       mesh.visible = true;
     }
   }
@@ -995,30 +950,35 @@ createBorder() {
   // ─── LOOP ────────────────────────────────────────────────────────────────
 
   animate(time) {
-    this.rafId = requestAnimationFrame((t) => this.animate(t));
+    this.rafId = requestAnimationFrame(this.boundAnimate);
 
     const deltaTime = time - this.lastTime;
     this.lastTime   = time;
 
     const deltaSeconds = deltaTime / 1000;
+
+    if (this.hitStopTimer > 0) {
+      this.hitStopTimer = Math.max(0, this.hitStopTimer - deltaSeconds);
+      if (this.composer) {
+        this.composer.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
+      return;
+    }
+
     this.particles.update(deltaSeconds);
     this.updatePhysicalFeedback(deltaSeconds);
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.iTime.value = time / 1000;
     }
 
-    if (this.materialsByColor) {
-    for (const mat of Object.values(this.materialsByColor)) {
-        if (mat.uniforms && mat.uniforms.time) {
-            mat.uniforms.time.value = time * 0.001;
-        }
+    for (let i = 0; i < this.animatedMaterials.length; i++) {
+      this.animatedMaterials[i].uniforms.time.value = time * 0.001;
     }
-}
 
     if (!this.isPaused && !this.isGameOver) {
-      if (this.hitStopTimer > 0) {
-        this.hitStopTimer = Math.max(0, this.hitStopTimer - deltaSeconds);
-      } else if (this.pendingLock) {
+      if (this.pendingLock) {
         this.pendingLock = null;
         this.mergePiece();
         this.dropCounter = 0;
@@ -1029,20 +989,20 @@ createBorder() {
         if (!this.checkCollision(0, -1)) {
           this.currentPiece.y--;
         } else {
-          this.queuePieceLock({ dropDistance: 1, major: true });
+          this.queuePieceLock({ dropDistance: 1, major: false });
         }
         this.dropCounter = 0;
       }
 
-if (this.currentPiece) {
-    this.playerLight.position.set(
-        this.currentPiece.x + 0.5,
-        this.currentPiece.y + 0.5,
-        8.0 // Reculée pour diffuser davantage
-    );
-    this.playerLight.intensity = 0.1; // On baisse pour éviter le point blanc
-    this.playerLight.distance = 10;   // On augmente la portée pour un dégradé doux
-}
+      if (this.currentPiece) {
+        this.playerLight.position.set(
+          this.currentPieceVisualX + 0.5,
+          this.currentPiece.y + 0.5,
+          2.0
+        );
+        this.playerLight.intensity = 18;
+        this.playerLight.distance = 26;
+      }
 
       this.updateGhostPosition();
       this.updateGraphics();
@@ -1102,11 +1062,6 @@ if (this.currentPiece) {
         this.updateHud();
         this.queuePieceLock({ dropDistance: hardDropDistance, major: true });
         this.dropCounter = 0;
-        break;
-      case 'c':
-      case 'C':
-        e.preventDefault();
-        if (!this.pendingLock && this.hitStopTimer <= 0) this.holdPiece();
         break;
     }
   }
