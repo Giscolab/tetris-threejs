@@ -320,13 +320,6 @@ initMaterials() {
     const renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(renderPass);
 
-    const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.05,
-      0.35,
-      0.55
-    );
-    this.composer.addPass(bloomPass);
 
     const edgeGlowPass = new ShaderPass({
       uniforms: {
@@ -924,7 +917,7 @@ initMaterials() {
           this.currentPiece.y + 0.5,
           5.0 // Plus proche pour bien éclairer
         );
-				this.playerLight.intensity = 50;
+				this.playerLight.intensity = 5;
       }
 
       this.updateGhostPosition();
