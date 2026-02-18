@@ -9,11 +9,11 @@ const BLOCK_GAP   = 0.05;
 
 // Palette métallique désaturée — acier, laiton, cuivre, titane
 const SHAPES = {
-  I: { coords: [[-1,0], [0,0], [1,0], [2,0]], color: 0xD4AF37 }, // Or (Gold)
-  O: { coords: [[0,0], [1,0], [0,1], [1,1]],  color: 0xB87333 }, // Cuivre (Copper)
-  T: { coords: [[0,0], [1,0], [2,0], [1,1]],  color: 0xC0C0C0 }, // Argent (Silver)
-  S: { coords: [[1,0], [2,0], [0,1], [1,1]],  color: 0x50C878 }, // Émeraude (Emerald)
-  Z: { coords: [[0,0], [1,0], [1,1], [2,1]],  color: 0x4682B4 }, // Acier Bleu (Steel)
+  I: { coords: [[-1,0], [0,0], [1,0], [2,0]], color: 0xFFD700 }, // Or (Gold)
+  O: { coords: [[0,0], [1,0], [0,1], [1,1]],  color: 0xFB641E }, // Cuivre (Copper)
+  T: { coords: [[0,0], [1,0], [2,0], [1,1]],  color: 0xE0E0E0 }, // Argent (Silver)
+  S: { coords: [[1,0], [2,0], [0,1], [1,1]],  color: 0x00FF7F }, // Émeraude (Emerald)
+  Z: { coords: [[0,0], [1,0], [1,1], [2,1]],  color: 0x1E90FF }, // Acier Bleu (Steel)
   J: { coords: [[0,0], [0,1], [1,1], [2,1]],  color: 0xE5E4E2 }, // Platine
   L: { coords: [[2,0], [0,1], [1,1], [2,1]],  color: 0xCD7F32 }  // Bronze
 };
@@ -185,7 +185,7 @@ class TetrisGame {
 
     // Caméra
     const aspect = window.innerWidth / window.innerHeight;
-    this.camera  = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+    this.camera  = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
     this.camera.position.set(4.5, 10, 25);
     this.camera.lookAt(4.5, 10, 0);
 
@@ -217,79 +217,89 @@ class TetrisGame {
     this.spawnPiece();
   }
 
-  initMaterials() {
+initMaterials() {
     this.materialsByColor = {};
-    const sharedLightDirection = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
-    const sharedLightColor = new THREE.Color(1, 1, 1);
-
-    const fragmentShader = `
-      precision highp float;
-      precision highp int;
-
-      uniform vec3 baseColor;
-      uniform vec3 lightDir;
-      uniform vec3 lightColor;
-      uniform float time;
-
-      varying vec3 vNormal;
-      varying vec3 vWorldPos;
-
-      float hash(vec3 p) {
-        p = fract(p * 0.3183099 + vec3(0.1, 0.17, 0.13));
-        p *= 17.0;
-        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-      }
-
-			void main() {
-				vec3 N = normalize(vNormal);
-				
-        float grain = hash(vWorldPos * 100.0) * 0.08;
-        N = normalize(N + vec3(grain));
-
-        vec3 V = normalize(cameraPosition - vWorldPos);
-        vec3 L = normalize(lightDir);
-        vec3 H = normalize(L + V);
-
-        float diff = max(dot(N, L), 0.0) * 0.4;
-        float spec = pow(max(dot(N, H), 0.0), 128.0) * 2.0;
-        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 1.5;
-
-        vec3 finalColor = baseColor * (diff + 0.2);
-        finalColor += lightColor * spec;
-        finalColor += baseColor * fresnel;
-
-        gl_FragColor = vec4(finalColor, 1.0);
-      }
-
-    `;
+    // On incline la lumière pour qu'elle tape les arêtes des cubes
+    const sharedLightDirection = new THREE.Vector3(5.0, 10.0, 7.0).normalize();
 
     const vertexShader = `
       varying vec3 vNormal;
       varying vec3 vWorldPos;
+      varying vec3 vViewDir;
 
       void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPosition.xyz;
         vNormal = normalize(mat3(modelMatrix) * normal);
-        gl_Position = projectionMatrix * viewMatrix * wp;
+        vViewDir = normalize(cameraPosition - worldPosition.xyz);
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `;
 
-    const colors = new Set(Object.values(SHAPES).map((shape) => shape.color));
-    colors.forEach((colorHex) => {
-      const baseColor = new THREE.Color(colorHex);
-      this.materialsByColor[colorHex] = new THREE.ShaderMaterial({
-        uniforms: {
-          time: { value: 0 },
-          baseColor: { value: baseColor },
-          lightDir: { value: sharedLightDirection.clone() },
-          lightColor: { value: sharedLightColor.clone() }
-        },
-        vertexShader,
-        fragmentShader
-      });
+    const fragmentShader = `
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      varying vec3 vViewDir;
+      uniform vec3 baseColor;
+      uniform vec3 lightDir;
+
+      void main() {
+        vec3 N = normalize(vNormal);
+        vec3 V = normalize(vViewDir);
+        vec3 L = normalize(lightDir);
+        vec3 H = normalize(L + V);
+
+        // --- Équations Physiques (PBR simplifié) ---
+        
+        // Fresnel : Le métal brille sur les angles morts
+        float F0 = 0.95; 
+        float fresnel = F0 + (1.0 - F0) * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+
+        // GGX Specular : Reflet net et poli
+        float roughness = 0.12; // Plus c'est bas, plus c'est miroir
+        float alpha = roughness * roughness;
+        float NdotH = max(dot(N, H), 0.0);
+        float d_denom = (NdotH * NdotH * (alpha * alpha - 1.0) + 1.0);
+        float D = (alpha * alpha) / (3.14159 * d_denom * d_denom);
+
+        // Géométrie (Smith)
+        float k = pow(roughness + 1.0, 2.0) / 8.0;
+        float G1V = dot(N, V) / (dot(N, V) * (1.0 - k) + k);
+        float G1L = dot(N, L) / (dot(N, L) * (1.0 - k) + k);
+        float G = G1V * G1L;
+
+        // --- Rendu Final ---
+        vec3 spec = vec3(D * G * fresnel) / (4.0 * max(dot(N, V), 0.001) * max(dot(N, L), 0.001));
+        
+        // Couleur de base sombre (le métal pur ne renvoie pas de diffuse, seulement du reflet)
+        vec3 ambient = baseColor * 0.1;
+        vec3 result = ambient + (baseColor * spec * 2.0);
+
+        // Éclat sur les bords (Rim lighting)
+        result += baseColor * pow(1.0 - dot(N, V), 3.0) * 0.5;
+
+        // Gamma correction simple
+        result = pow(result, vec3(1.0 / 2.2));
+        
+        gl_FragColor = vec4(result, 1.0);
+      }
+    `;
+
+    Object.values(SHAPES).forEach((shape) => {
+      const colorHex = shape.color;
+      if (!this.materialsByColor[colorHex]) {
+        this.materialsByColor[colorHex] = new THREE.ShaderMaterial({
+          uniforms: {
+            baseColor: { value: new THREE.Color(colorHex) },
+            lightDir: { value: sharedLightDirection },
+            time: { value: 0 } // On l'ajoute pour éviter les erreurs JS si tu oublies de supprimer la ligne
+          },
+          vertexShader,
+          fragmentShader
+        });
+      }
     });
-  }
+}
 
   addLights() {
    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
@@ -426,7 +436,8 @@ class TetrisGame {
     const geo    = new THREE.BoxGeometry(
       BLOCK_SIZE - BLOCK_GAP,
       BLOCK_SIZE - BLOCK_GAP,
-      BLOCK_SIZE - BLOCK_GAP
+      BLOCK_SIZE - BLOCK_GAP,
+			2, 2, 2
     );
 
     for (let x = 0; x < GRID_WIDTH; x++) {
@@ -812,10 +823,12 @@ class TetrisGame {
     }
 
     if (this.materialsByColor) {
-      for (const mat of Object.values(this.materialsByColor)) {
-        mat.uniforms.time.value = time * 0.001;
-      }
+    for (const mat of Object.values(this.materialsByColor)) {
+        if (mat.uniforms && mat.uniforms.time) {
+            mat.uniforms.time.value = time * 0.001;
+        }
     }
+}
 
     if (!this.isPaused && !this.isGameOver) {
       this.dropCounter += deltaTime;
