@@ -20,8 +20,13 @@
         <span class="tag">MODE:LIVE</span>
       </header>
 
-      <section id="hold-panel" class="radar-panel" aria-label="Held Piece" aria-live="polite" aria-atomic="true">
-        <span class="panel-title">HOLD</span>
+      <section id="impact-panel" class="radar-panel" aria-label="Impact Telemetry" aria-hidden="true">
+        <span class="panel-title">IMPACT</span>
+        <ul class="impact-list" role="presentation">
+          <li>CHASSIS OSC: ON</li>
+          <li>HIT-STOP: 0.05s</li>
+          <li>SQUASH: ACTIVE</li>
+        </ul>
       </section>
 
       <section id="stats-panel" aria-label="Game Telemetry">
@@ -53,12 +58,12 @@
     </aside>
   </main>
 
-  <div id="game-over-msg" class="system-overlay" role="alertdialog" aria-modal="true" aria-labelledby="game-over-title" aria-describedby="game-over-desc" hidden>
+  <div id="game-over-msg" class="system-overlay" role="alertdialog" aria-modal="true" aria-labelledby="game-over-title" aria-describedby="game-over-desc">
     <h2 id="game-over-title">GAME OVER</h2>
     <p id="game-over-desc">SPACE to restart engine</p>
   </div>
 
-  <div id="pause-msg" class="system-overlay" role="alertdialog" aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-desc" hidden>
+  <div id="pause-msg" class="system-overlay" role="alertdialog" aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-desc">
     <h2 id="pause-title">PAUSE</h2>
     <p id="pause-desc">P to resume</p>
   </div>
@@ -72,7 +77,6 @@
         <li><kbd>↑</kbd> rotation</li>
         <li><kbd>↓</kbd> soft drop</li>
         <li><kbd>space</kbd> hard drop</li>
-        <li><kbd>C</kbd> hold</li>
         <li><kbd>P</kbd> pause</li>
       </ul>
     </nav>

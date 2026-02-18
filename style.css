@@ -150,7 +150,7 @@ kbd {
   background: rgba(35, 42, 51, 0.42);
 }
 
-#hold-panel,
+#impact-panel,
 #next-panel {
   position: relative;
   align-self: start;
@@ -159,8 +159,21 @@ kbd {
   overflow: hidden;
 }
 
-#hold-panel { grid-column: 1; grid-row: 2; }
+#impact-panel { grid-column: 1; grid-row: 2; }
 #next-panel { grid-column: 4; grid-row: 2; }
+
+.impact-list {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 0.63rem;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
 
 .radar-panel::before {
   inset: 0;
@@ -389,7 +402,7 @@ kbd {
     padding: 8px;
   }
 
-  #hold-panel,
+  #impact-panel,
   #next-panel {
     min-height: 118px;
   }
