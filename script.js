@@ -53,7 +53,14 @@ const CONFIG = {
   effects: {
     lineClearFlashIntensity: 100,
     lineClearFlashDurationMs: 100,
-    hudScoreFlashDurationMs: 450
+    hudScoreFlashDurationMs: 450,
+    hitStopDuration: 0.05,
+    cameraShakeDamping: 10,
+    cameraShakeFrequency: 34,
+    pileBounceDamping: 8,
+    pileBounceFrequency: 22,
+    lateralFollow: 0.16,
+    squashDuration: 0.13
   }
 };
 
@@ -174,6 +181,23 @@ class TetrisGame {
     this.tempBlockMaterial = null;
     this.rafId = null;
 
+    this.cameraBasePosition = null;
+    this.cameraLookAt = new THREE.Vector3(4.5, 10, 0);
+    this.cameraShakePhase = 0;
+    this.cameraShakeAmplitude = 0;
+    this.cameraShakeOffset = new THREE.Vector3();
+
+    this.pileBouncePhase = 0;
+    this.pileBounceAmplitude = 0;
+
+    this.hitStopTimer = 0;
+    this.pendingLock = null;
+    this.currentPieceVisualX = 0;
+    this.currentPieceSquashTimer = 0;
+    this.currentPieceSquashIntensity = 0;
+    this.currentPieceTilt = new THREE.Quaternion();
+    this.tempEuler = new THREE.Euler();
+
     this.boundResizeHandler = () => this.onResize();
     this.boundKeydownHandler = (e) => this.handleInput(e);
 
@@ -193,6 +217,7 @@ class TetrisGame {
     this.camera  = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
     this.camera.position.set(4.5, 10, 25);
     this.camera.lookAt(4.5, 10, 0);
+    this.cameraBasePosition = this.camera.position.clone();
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -632,6 +657,9 @@ initMaterials() {
     this.currentPiece.x = Math.floor(GRID_WIDTH / 2) - 1;
     this.currentPiece.y = GRID_HEIGHT - 2;
     if (this.currentPiece.type === 'I') this.currentPiece.x--;
+    this.currentPieceVisualX = this.currentPiece.x;
+    this.currentPieceSquashTimer = 0;
+    this.currentPieceSquashIntensity = 0;
 
     if (this.checkCollision(0, 0, this.currentPiece)) {
       this.gameOver();
@@ -696,6 +724,50 @@ initMaterials() {
     }
     this.checkLines();
     this.spawnPiece();
+  }
+
+  triggerImpactFeedback({ dropDistance = 1, major = false } = {}) {
+    const impactPower = Math.max(0.15, Math.min(1.5, dropDistance / GRID_HEIGHT));
+    this.cameraShakeAmplitude += impactPower * (major ? 1.45 : 0.8);
+    this.pileBounceAmplitude += impactPower * (major ? 0.32 : 0.18);
+    this.currentPieceSquashTimer = CONFIG.effects.squashDuration;
+    this.currentPieceSquashIntensity = impactPower * (major ? 0.22 : 0.12);
+    this.tempEuler.set(
+      (Math.random() - 0.5) * impactPower * 0.08,
+      (Math.random() - 0.5) * impactPower * 0.12,
+      (Math.random() - 0.5) * impactPower * 0.04
+    );
+    this.currentPieceTilt.setFromEuler(this.tempEuler);
+    this.hitStopTimer = Math.max(this.hitStopTimer, CONFIG.effects.hitStopDuration);
+  }
+
+  queuePieceLock({ dropDistance = 1, major = false } = {}) {
+    if (this.pendingLock) return;
+    this.triggerImpactFeedback({ dropDistance, major });
+    this.pendingLock = { dropDistance, major };
+  }
+
+  updatePhysicalFeedback(deltaSeconds) {
+    const damping = Math.exp(-CONFIG.effects.cameraShakeDamping * deltaSeconds);
+    this.cameraShakeAmplitude *= damping;
+    this.cameraShakePhase += deltaSeconds * CONFIG.effects.cameraShakeFrequency;
+    const shakeY = Math.sin(this.cameraShakePhase) * this.cameraShakeAmplitude;
+    const shakeX = Math.cos(this.cameraShakePhase * 0.8) * this.cameraShakeAmplitude * 0.35;
+    this.cameraShakeOffset.set(shakeX, shakeY, 0);
+
+    this.camera.position.copy(this.cameraBasePosition).add(this.cameraShakeOffset);
+    this.camera.lookAt(this.cameraLookAt.x, this.cameraLookAt.y + shakeY * 0.25, this.cameraLookAt.z);
+
+    const pileDamping = Math.exp(-CONFIG.effects.pileBounceDamping * deltaSeconds);
+    this.pileBounceAmplitude *= pileDamping;
+    this.pileBouncePhase += deltaSeconds * CONFIG.effects.pileBounceFrequency;
+
+    if (this.currentPiece) {
+      const follow = 1 - Math.exp(-deltaSeconds / CONFIG.effects.lateralFollow);
+      this.currentPieceVisualX = THREE.MathUtils.lerp(this.currentPieceVisualX, this.currentPiece.x, follow);
+    }
+
+    this.currentPieceSquashTimer = Math.max(0, this.currentPieceSquashTimer - deltaSeconds);
   }
 
   checkLines() {
@@ -848,6 +920,14 @@ initMaterials() {
   }
 
   updateGraphics() {
+    const pileYOffset = Math.sin(this.pileBouncePhase) * this.pileBounceAmplitude;
+    const squashProgress = this.currentPieceSquashTimer > 0
+      ? this.currentPieceSquashTimer / CONFIG.effects.squashDuration
+      : 0;
+    const squashPulse = Math.sin((1 - squashProgress) * Math.PI);
+    const yScale = 1 - this.currentPieceSquashIntensity * squashPulse;
+    const xScale = 1 + this.currentPieceSquashIntensity * 0.6 * squashPulse;
+
     // --- Blocs figés ---
     for (let x = 0; x < GRID_WIDTH; x++) {
       for (let y = 0; y < GRID_HEIGHT; y++) {
@@ -857,8 +937,14 @@ initMaterials() {
         if (val) {
           mesh.visible = true;
           mesh.material = this.materialsByColor[val];
+          mesh.position.set(x, y + pileYOffset, 0);
+          mesh.scale.set(1, 1, 1);
+          mesh.quaternion.identity();
         } else {
           mesh.visible = false;
+          mesh.position.set(x, y, 0);
+          mesh.scale.set(1, 1, 1);
+          mesh.quaternion.identity();
         }
       }
     }
@@ -874,6 +960,9 @@ initMaterials() {
           const mesh = this.meshGrid[x][y];
           mesh.visible = true;
           mesh.material = this.materialsByColor[p.color];
+          mesh.position.set(this.currentPieceVisualX + block[0], y, 0);
+          mesh.scale.set(xScale, yScale, 1);
+          mesh.quaternion.copy(this.currentPieceTilt);
         }
       }
     }
@@ -887,7 +976,9 @@ initMaterials() {
     const deltaTime = time - this.lastTime;
     this.lastTime   = time;
 
-    this.particles.update(deltaTime / 1000);
+    const deltaSeconds = deltaTime / 1000;
+    this.particles.update(deltaSeconds);
+    this.updatePhysicalFeedback(deltaSeconds);
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.iTime.value = time / 1000;
     }
@@ -901,12 +992,20 @@ initMaterials() {
 }
 
     if (!this.isPaused && !this.isGameOver) {
+      if (this.hitStopTimer > 0) {
+        this.hitStopTimer = Math.max(0, this.hitStopTimer - deltaSeconds);
+      } else if (this.pendingLock) {
+        this.pendingLock = null;
+        this.mergePiece();
+        this.dropCounter = 0;
+      }
+
       this.dropCounter += deltaTime;
-      if (this.dropCounter > this.dropInterval) {
+      if (this.hitStopTimer <= 0 && !this.pendingLock && this.dropCounter > this.dropInterval) {
         if (!this.checkCollision(0, -1)) {
           this.currentPiece.y--;
         } else {
-          this.mergePiece();
+          this.queuePieceLock({ dropDistance: 1, major: true });
         }
         this.dropCounter = 0;
       }
@@ -949,15 +1048,15 @@ initMaterials() {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        if (!this.checkCollision(-1, 0)) this.currentPiece.x--;
+        if (!this.pendingLock && this.hitStopTimer <= 0 && !this.checkCollision(-1, 0)) this.currentPiece.x--;
         break;
       case 'ArrowRight':
         e.preventDefault();
-        if (!this.checkCollision(1, 0)) this.currentPiece.x++;
+        if (!this.pendingLock && this.hitStopTimer <= 0 && !this.checkCollision(1, 0)) this.currentPiece.x++;
         break;
       case 'ArrowDown':
         e.preventDefault();
-        if (!this.checkCollision(0, -1)) {
+        if (!this.pendingLock && this.hitStopTimer <= 0 && !this.checkCollision(0, -1)) {
           this.currentPiece.y--;
           this.score += CONFIG.gameplay.softDropScore;
           this.updateHud();
@@ -965,22 +1064,24 @@ initMaterials() {
         break;
       case 'ArrowUp':
         e.preventDefault();
-        this.rotatePiece();
+        if (!this.pendingLock && this.hitStopTimer <= 0) this.rotatePiece();
         break;
       case ' ':
         e.preventDefault();
+        let hardDropDistance = 0;
         while (!this.checkCollision(0, -1)) {
           this.currentPiece.y--;
+          hardDropDistance++;
           this.score += CONFIG.gameplay.hardDropScore;
         }
         this.updateHud();
-        this.mergePiece();
+        this.queuePieceLock({ dropDistance: hardDropDistance, major: true });
         this.dropCounter = 0;
         break;
       case 'c':
       case 'C':
         e.preventDefault();
-        this.holdPiece();
+        if (!this.pendingLock && this.hitStopTimer <= 0) this.holdPiece();
         break;
     }
   }
