@@ -349,21 +349,21 @@ initMaterials() {
         uniform vec3 glowTint;
         varying vec2 vUv;
 
-        float luminance(vec3 c) {
+        float calculateLuma(vec3 c) {
           return dot(c, vec3(0.299, 0.587, 0.114));
         }
 
         void main() {
           vec2 texel = 1.0 / resolution;
 
-          float tl = luminance(texture2D(tDiffuse, vUv + texel * vec2(-1.0,  1.0)).rgb);
-          float tc = luminance(texture2D(tDiffuse, vUv + texel * vec2( 0.0,  1.0)).rgb);
-          float tr = luminance(texture2D(tDiffuse, vUv + texel * vec2( 1.0,  1.0)).rgb);
-          float ml = luminance(texture2D(tDiffuse, vUv + texel * vec2(-1.0,  0.0)).rgb);
-          float mr = luminance(texture2D(tDiffuse, vUv + texel * vec2( 1.0,  0.0)).rgb);
-          float bl = luminance(texture2D(tDiffuse, vUv + texel * vec2(-1.0, -1.0)).rgb);
-          float bc = luminance(texture2D(tDiffuse, vUv + texel * vec2( 0.0, -1.0)).rgb);
-          float br = luminance(texture2D(tDiffuse, vUv + texel * vec2( 1.0, -1.0)).rgb);
+          float tl = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2(-1.0,  1.0)).rgb);
+          float tc = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2( 0.0,  1.0)).rgb);
+          float tr = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2( 1.0,  1.0)).rgb);
+          float ml = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2(-1.0,  0.0)).rgb);
+          float mr = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2( 1.0,  0.0)).rgb);
+          float bl = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2(-1.0, -1.0)).rgb);
+          float bc = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2( 0.0, -1.0)).rgb);
+          float br = calculateLuma(texture2D(tDiffuse, vUv + texel * vec2( 1.0, -1.0)).rgb);
 
           float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
           float gy = -bl - 2.0 * bc - br + tl + 2.0 * tc + tr;
@@ -931,8 +931,11 @@ initMaterials() {
       this.updateGraphics();
     }
 
-    if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    if (this.composer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   handleInput(e) {
