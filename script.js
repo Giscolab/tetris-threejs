@@ -556,33 +556,57 @@ initMaterials() {
     }
   }
 
-  // ─── BORDER ──────────────────────────────────────────────────────────────
+// ─── BORDER & CHASSIS STRUCTURE ──────────────────────────────────────────────
 
-  createBorder() {
-    // Cadre
-    const borderGeo = new THREE.BoxGeometry(GRID_WIDTH + 0.2, GRID_HEIGHT + 0.2, 0.5);
-    const edges     = new THREE.EdgesGeometry(borderGeo);
-    const line      = new THREE.LineSegments(
-      edges,
-      new THREE.LineBasicMaterial({ color: 0x555566 }) // Cadre visible mais discret
+createBorder() {
+    const group = new THREE.Group();
+
+    // 1. L'ARMATURE FILAIRE (CADRE EXTERNE)
+    // On utilise un Tube ou un LineSegments plus épais pour l'aspect "Exosquelette"
+    const borderGeo = new THREE.BoxGeometry(GRID_WIDTH + 0.3, GRID_HEIGHT + 0.3, 0.8);
+    const edges = new THREE.EdgesGeometry(borderGeo);
+    
+    // Matériau technique : Gris sidéral profond
+    this.gridFrame = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({ 
+            color: 0x888899, 
+            transparent: true, 
+            opacity: 0.5 
+        })
     );
-    line.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.5);
-    this.scene.add(line);
+    this.gridFrame.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.1);
+    group.add(this.gridFrame);
 
-    // Fond du plateau : GRIS CLAIR METAL
-    // C'est la clé pour ne plus avoir l'impression de jouer dans le noir.
-    const backGeo = new THREE.PlaneGeometry(GRID_WIDTH, GRID_HEIGHT);
-    const backMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1a1c,      // Presque noir
-    transparent: true,
-    opacity: 0.85,       // Laisse deviner le fond orange derrière
-    metalness: 0.1,
-    roughness: 0.9,
-});
-    const background = new THREE.Mesh(backGeo, backMat);
-    background.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.6);
-    this.scene.add(background);
-  }
+    // 2. LE FOND PHYSIQUE (PLAQUE DE MÉTAL BROSSÉ)
+    // On passe sur un MeshPhysicalMaterial pour des reflets de dingue
+    const backGeo = new THREE.PlaneGeometry(GRID_WIDTH + 0.1, GRID_HEIGHT + 0.1);
+    const backMat = new THREE.MeshPhysicalMaterial({
+        color: 0x0a0a0c,         // Teinte titane sombre
+        metalness: 0.9,          // Très métallique
+        roughness: 0.4,          // Un peu de flou dans les reflets
+        clearcoat: 1.0,          // Vernis protecteur (effet glossy technique)
+        clearcoatRoughness: 0.1,
+        transparent: true,
+        opacity: 0.95
+    });
+
+    this.gridBack = new THREE.Mesh(backGeo, backMat);
+    this.gridBack.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.45);
+    group.add(this.gridBack);
+
+    // 3. LA GRILLE DE MESURE (OVERLAY TECHNIQUE)
+    // Des lignes horizontales ultra-fines pour la précision visuelle
+    const gridHelper = new THREE.GridHelper(GRID_HEIGHT, GRID_HEIGHT, 0xffffff, 0x222222);
+    gridHelper.rotation.x = Math.PI / 2;
+    gridHelper.position.set(GRID_WIDTH / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, -0.44);
+    gridHelper.scale.set(GRID_WIDTH / GRID_HEIGHT, 1, 1);
+    gridHelper.material.transparent = true;
+    gridHelper.material.opacity = 0.05;
+    group.add(gridHelper);
+
+    this.scene.add(group);
+}
 
   // ─── GHOST / NEXT / HOLD MESHES ──────────────────────────────────────────
 
@@ -1010,14 +1034,15 @@ initMaterials() {
         this.dropCounter = 0;
       }
 
-      if (this.currentPiece) {
-        this.playerLight.position.set(
-          this.currentPiece.x + 0.5,
-          this.currentPiece.y + 0.5,
-          5.0 // Plus proche pour bien éclairer
-        );
-				this.playerLight.intensity = 5;
-      }
+if (this.currentPiece) {
+    this.playerLight.position.set(
+        this.currentPiece.x + 0.5,
+        this.currentPiece.y + 0.5,
+        8.0 // Reculée pour diffuser davantage
+    );
+    this.playerLight.intensity = 0.1; // On baisse pour éviter le point blanc
+    this.playerLight.distance = 10;   // On augmente la portée pour un dégradé doux
+}
 
       this.updateGhostPosition();
       this.updateGraphics();
