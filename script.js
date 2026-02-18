@@ -1,4 +1,8 @@
 import * as THREE from "https://esm.sh/three";
+import { EffectComposer } from "https://esm.sh/three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "https://esm.sh/three/examples/jsm/postprocessing/RenderPass.js";
+import { ShaderPass } from "https://esm.sh/three/examples/jsm/postprocessing/ShaderPass.js";
+import { UnrealBloomPass } from "https://esm.sh/three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 
 // --- 2. CONSTANTS & CONFIGURATION ---
@@ -140,6 +144,7 @@ class TetrisGame {
     this.scene    = null;
     this.camera   = null;
     this.renderer = null;
+    this.composer = null;
 
     this.grid     = this.createEmptyGrid();
     this.meshGrid = this.createMeshGrid();
@@ -201,6 +206,8 @@ class TetrisGame {
     if (container) container.appendChild(this.renderer.domElement);
     else           document.body.appendChild(this.renderer.domElement);
 
+    this.initPostProcessing();
+
     this.addLights();
     this.createBorder();
     this.particles = new ParticleSystem(this.scene);
@@ -219,15 +226,16 @@ class TetrisGame {
 
 initMaterials() {
     this.materialsByColor = {};
-    // On incline la lumière pour qu'elle tape les arêtes des cubes
     const sharedLightDirection = new THREE.Vector3(5.0, 10.0, 7.0).normalize();
 
     const vertexShader = `
       varying vec3 vNormal;
       varying vec3 vWorldPos;
       varying vec3 vViewDir;
+      varying vec2 vUv;
 
       void main() {
+        vUv = uv;
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPos = worldPosition.xyz;
         vNormal = normalize(mat3(modelMatrix) * normal);
@@ -240,8 +248,18 @@ initMaterials() {
       varying vec3 vNormal;
       varying vec3 vWorldPos;
       varying vec3 vViewDir;
+      varying vec2 vUv;
       uniform vec3 baseColor;
       uniform vec3 lightDir;
+      uniform float time;
+
+      vec3 palette(float t) {
+        vec3 a = vec3(0.48, 0.45, 0.55);
+        vec3 b = vec3(0.44, 0.40, 0.36);
+        vec3 c = vec3(1.00, 1.00, 1.00);
+        vec3 d = vec3(0.00, 0.10, 0.20);
+        return a + b * cos(6.28318 * (c * t + d));
+      }
 
       void main() {
         vec3 N = normalize(vNormal);
@@ -249,38 +267,31 @@ initMaterials() {
         vec3 L = normalize(lightDir);
         vec3 H = normalize(L + V);
 
-        // --- Équations Physiques (PBR simplifié) ---
-        
-        // Fresnel : Le métal brille sur les angles morts
-        float F0 = 0.95; 
-        float fresnel = F0 + (1.0 - F0) * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+        vec2 bevelU = smoothstep(vec2(0.0), vec2(0.1), vUv);
+        vec2 bevelV = smoothstep(vec2(0.0), vec2(0.1), vec2(1.0) - vUv);
+        float bevelMask = bevelU.x * bevelU.y * bevelV.x * bevelV.y;
+        bevelMask = clamp(bevelMask, 0.12, 1.0);
 
-        // GGX Specular : Reflet net et poli
-        float roughness = 0.12; // Plus c'est bas, plus c'est miroir
-        float alpha = roughness * roughness;
-        float NdotH = max(dot(N, H), 0.0);
-        float d_denom = (NdotH * NdotH * (alpha * alpha - 1.0) + 1.0);
-        float D = (alpha * alpha) / (3.14159 * d_denom * d_denom);
+        float ndotl = max(dot(N, L), 0.0);
+        float ndoth = max(dot(N, H), 0.0);
+        float ndotv = max(dot(N, V), 0.0);
 
-        // Géométrie (Smith)
-        float k = pow(roughness + 1.0, 2.0) / 8.0;
-        float G1V = dot(N, V) / (dot(N, V) * (1.0 - k) + k);
-        float G1L = dot(N, L) / (dot(N, L) * (1.0 - k) + k);
-        float G = G1V * G1L;
+        vec3 paletteColor = palette(time * 0.08 + dot(baseColor, vec3(0.3333)));
+        vec3 albedo = mix(baseColor, paletteColor, 0.4);
 
-        // --- Rendu Final ---
-        vec3 spec = vec3(D * G * fresnel) / (4.0 * max(dot(N, V), 0.001) * max(dot(N, L), 0.001));
-        
-        // Couleur de base sombre (le métal pur ne renvoie pas de diffuse, seulement du reflet)
-        vec3 ambient = baseColor * 0.1;
-        vec3 result = ambient + (baseColor * spec * 2.0);
+        vec3 ambient = albedo * 0.18;
+        vec3 diffuse = albedo * ndotl * 0.75;
 
-        // Éclat sur les bords (Rim lighting)
-        result += baseColor * pow(1.0 - dot(N, V), 3.0) * 0.5;
+        float specPower = mix(18.0, 72.0, bevelMask);
+        vec3 specular = vec3(pow(ndoth, specPower) * (0.45 + 0.55 * ndotl));
 
-        // Gamma correction simple
+        float fresnel = pow(1.0 - ndotv, 4.0);
+        vec3 rimGlow = mix(albedo, vec3(1.0), 0.4) * fresnel * 0.85;
+
+        vec3 lit = ambient + diffuse + specular;
+        vec3 result = (lit * bevelMask) + rimGlow;
+
         result = pow(result, vec3(1.0 / 2.2));
-        
         gl_FragColor = vec4(result, 1.0);
       }
     `;
@@ -292,15 +303,81 @@ initMaterials() {
           uniforms: {
             baseColor: { value: new THREE.Color(colorHex) },
             lightDir: { value: sharedLightDirection },
-            time: { value: 0 } // On l'ajoute pour éviter les erreurs JS si tu oublies de supprimer la ligne
+            time: { value: 0 }
           },
           vertexShader,
           fragmentShader
         });
       }
     });
-}
+  }
 
+  initPostProcessing() {
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      1.05,
+      0.35,
+      0.55
+    );
+    this.composer.addPass(bloomPass);
+
+    const edgeGlowPass = new ShaderPass({
+      uniforms: {
+        tDiffuse: { value: null },
+        resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        edgeStrength: { value: 0.8 },
+        glowTint: { value: new THREE.Color(0xff6a33) }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform vec2 resolution;
+        uniform float edgeStrength;
+        uniform vec3 glowTint;
+        varying vec2 vUv;
+
+        float luminance(vec3 c) {
+          return dot(c, vec3(0.299, 0.587, 0.114));
+        }
+
+        void main() {
+          vec2 texel = 1.0 / resolution;
+
+          float tl = luminance(texture2D(tDiffuse, vUv + texel * vec2(-1.0,  1.0)).rgb);
+          float tc = luminance(texture2D(tDiffuse, vUv + texel * vec2( 0.0,  1.0)).rgb);
+          float tr = luminance(texture2D(tDiffuse, vUv + texel * vec2( 1.0,  1.0)).rgb);
+          float ml = luminance(texture2D(tDiffuse, vUv + texel * vec2(-1.0,  0.0)).rgb);
+          float mr = luminance(texture2D(tDiffuse, vUv + texel * vec2( 1.0,  0.0)).rgb);
+          float bl = luminance(texture2D(tDiffuse, vUv + texel * vec2(-1.0, -1.0)).rgb);
+          float bc = luminance(texture2D(tDiffuse, vUv + texel * vec2( 0.0, -1.0)).rgb);
+          float br = luminance(texture2D(tDiffuse, vUv + texel * vec2( 1.0, -1.0)).rgb);
+
+          float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
+          float gy = -bl - 2.0 * bc - br + tl + 2.0 * tc + tr;
+          float edge = clamp(length(vec2(gx, gy)) * edgeStrength, 0.0, 1.0);
+
+          vec4 src = texture2D(tDiffuse, vUv);
+          vec3 glow = glowTint * edge * 0.35;
+          gl_FragColor = vec4(src.rgb + glow, src.a);
+        }
+      `
+    });
+
+    this.composer.addPass(edgeGlowPass);
+  }
   addLights() {
    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
     dirLight.position.set(5, 15, 10);
@@ -518,9 +595,9 @@ initMaterials() {
       BLOCK_SIZE - BLOCK_GAP,
       BLOCK_SIZE - BLOCK_GAP
     );
+    const fallbackMaterial = this.materialsByColor[SHAPES.I.color];
     for (let i = 0; i < 4; i++) {
-      const mat  = new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.95 });
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(geo, fallbackMaterial);
       mesh.visible = false;
       this.scene.add(mesh);
       this.nextPieceMeshes.push(mesh);
@@ -533,9 +610,9 @@ initMaterials() {
       BLOCK_SIZE - BLOCK_GAP,
       BLOCK_SIZE - BLOCK_GAP
     );
+    const fallbackMaterial = this.materialsByColor[SHAPES.I.color];
     for (let i = 0; i < 4; i++) {
-      const mat  = new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.95 });
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(geo, fallbackMaterial);
       mesh.visible = false;
       this.scene.add(mesh);
       this.holdPieceMeshes.push(mesh);
@@ -756,7 +833,7 @@ initMaterials() {
       const block = this.nextPiece.coords[i];
       const mesh  = this.nextPieceMeshes[i];
       mesh.position.set(baseX + block[0], baseY + block[1], 0);
-      mesh.material.color.setHex(this.nextPiece.color);
+      mesh.material = this.materialsByColor[this.nextPiece.color];
       mesh.visible = true;
     }
   }
@@ -772,7 +849,7 @@ initMaterials() {
       const block = this.heldPiece.coords[i];
       const mesh  = this.holdPieceMeshes[i];
       mesh.position.set(baseX + block[0], baseY + block[1], 0);
-      mesh.material.color.setHex(this.heldPiece.color);
+      mesh.material = this.materialsByColor[this.heldPiece.color];
       mesh.visible = true;
     }
   }
@@ -854,7 +931,8 @@ initMaterials() {
       this.updateGraphics();
     }
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   handleInput(e) {
@@ -915,6 +993,12 @@ initMaterials() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    if (this.composer) {
+      this.composer.setSize(window.innerWidth, window.innerHeight);
+      this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      const edgePass = this.composer.passes.find((pass) => pass.uniforms && pass.uniforms.resolution);
+      if (edgePass) edgePass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+    }
     if (this.bgMaterial) {
       this.bgMaterial.uniforms.iResolution.value.set(window.innerWidth, window.innerHeight);
     }
@@ -957,6 +1041,11 @@ initMaterials() {
     if (this.tempBlockMaterial) {
       this.tempBlockMaterial.dispose();
       this.tempBlockMaterial = null;
+    }
+
+    if (this.composer) {
+      this.composer.dispose();
+      this.composer = null;
     }
   }
 }
