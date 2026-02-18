@@ -14,6 +14,65 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <main class="machine-frame" aria-label="Interface de monitoring Tetris WebGL">
+    <div
+      id="canvas-container"
+      role="img"
+      aria-label="Plateau de jeu Tetris en rendu WebGL"
+    ></div>
+
+    <aside id="hud" role="complementary" aria-label="Tableau de bord système">
+      <header class="hud-head data-display" aria-hidden="true">
+        <span class="tag">SYS/TETRIS</span>
+        <span class="tag">FRAME:LOCKED</span>
+        <span class="tag">RENDER:WEBGL</span>
+        <span class="tag">MODE:LIVE</span>
+      </header>
+
+      <section
+        id="hold-panel"
+        class="radar-panel"
+        aria-label="Pièce en réserve"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span class="panel-title">HOLD</span>
+      </section>
+
+      <section id="stats-panel" aria-label="Télémetrie de la partie">
+        <div class="stat data-display">
+          <span class="stat-label" id="label-score" aria-hidden="true">SCORE</span>
+          <span id="val-score" class="stat-value" role="status" aria-labelledby="label-score" aria-live="polite" aria-atomic="true">0</span>
+        </div>
+
+        <div class="stat data-display">
+          <span class="stat-label" id="label-level" aria-hidden="true">LEVEL</span>
+          <span id="val-level" class="stat-value" role="status" aria-labelledby="label-level" aria-live="polite" aria-atomic="true">1</span>
+        </div>
+
+        <div class="stat data-display">
+          <span class="stat-label" id="label-lines" aria-hidden="true">LINES</span>
+          <span id="val-lines" class="stat-value" role="status" aria-labelledby="label-lines" aria-live="polite" aria-atomic="true">0</span>
+        </div>
+      </section>
+
+      <section
+        id="next-panel"
+        class="radar-panel"
+        aria-label="Prochaine pièce"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span class="panel-title">NEXT</span>
+      </section>
+
+      <footer class="hud-foot data-display" aria-hidden="true">
+        <span class="coord">GRID 10x20</span>
+        <span class="coord">INPUT KBD</span>
+        <span class="coord">LATENCY NOMINAL</span>
+      </footer>
+    </aside>
+  </main>
 
   <main class="machine-frame" aria-label="Interface de monitoring Tetris WebGL">
     <div
