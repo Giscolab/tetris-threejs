@@ -1,27 +1,18 @@
-<!DOCTYPE html>
-<html lang="fr">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Tetris WebGL — interface de monitoring demoscene industrielle">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tetris // Precision Engine</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500;700&display=swap"
-  >
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <main class="machine-frame" aria-label="Interface de monitoring Tetris WebGL">
-    <div
-      id="canvas-container"
-      role="img"
-      aria-label="Plateau de jeu Tetris en rendu WebGL"
-    ></div>
+<body lang="en">
+  <main id="app-container" aria-label="Tetris WebGL Monitoring Interface">
+    <div id="canvas-container" role="img" aria-label="Tetris WebGL Game Board"></div>
 
-    <aside id="hud" role="complementary" aria-label="Tableau de bord système">
+    <aside id="hud" role="complementary" aria-label="System Dashboard">
       <header class="hud-head data-display" aria-hidden="true">
         <span class="tag">SYS/TETRIS</span>
         <span class="tag">FRAME:LOCKED</span>
@@ -29,17 +20,11 @@
         <span class="tag">MODE:LIVE</span>
       </header>
 
-      <section
-        id="hold-panel"
-        class="radar-panel"
-        aria-label="Pièce en réserve"
-        aria-live="polite"
-        aria-atomic="true"
-      >
+      <section id="hold-panel" class="radar-panel" aria-label="Held Piece" aria-live="polite" aria-atomic="true">
         <span class="panel-title">HOLD</span>
       </section>
 
-      <section id="stats-panel" aria-label="Télémetrie de la partie">
+      <section id="stats-panel" aria-label="Game Telemetry">
         <div class="stat data-display">
           <span class="stat-label" id="label-score" aria-hidden="true">SCORE</span>
           <span id="val-score" class="stat-value" role="status" aria-labelledby="label-score" aria-live="polite" aria-atomic="true">0</span>
@@ -56,13 +41,7 @@
         </div>
       </section>
 
-      <section
-        id="next-panel"
-        class="radar-panel"
-        aria-label="Prochaine pièce"
-        aria-live="polite"
-        aria-atomic="true"
-      >
+      <section id="next-panel" class="radar-panel" aria-label="Next Piece" aria-live="polite" aria-atomic="true">
         <span class="panel-title">NEXT</span>
       </section>
 
@@ -74,119 +53,20 @@
     </aside>
   </main>
 
-  <main class="machine-frame" aria-label="Interface de monitoring Tetris WebGL">
-    <div
-      id="canvas-container"
-      role="img"
-      aria-label="Plateau de jeu Tetris en rendu WebGL"
-    ></div>
-
-    <aside
-      id="hud"
-      role="complementary"
-      aria-label="Tableau de bord système"
-    >
-      <header class="hud-head data-display" aria-hidden="true">
-        <span class="tag">SYS/TETRIS</span>
-        <span class="tag">RENDER:WEBGL</span>
-        <span class="tag">MODE:LIVE</span>
-      </header>
-
-      <section
-        id="hold-panel"
-        class="radar-panel"
-        aria-label="Pièce en réserve"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <span class="panel-title">HOLD</span>
-      </section>
-
-      <section id="stats-panel" aria-label="Télémetrie de la partie">
-        <div class="stat data-display">
-          <span class="stat-label" id="label-score" aria-hidden="true">SCORE</span>
-          <span
-            id="val-score"
-            class="stat-value"
-            role="status"
-            aria-labelledby="label-score"
-            aria-live="polite"
-            aria-atomic="true"
-          >0</span>
-        </div>
-
-        <div class="stat data-display">
-          <span class="stat-label" id="label-level" aria-hidden="true">LEVEL</span>
-          <span
-            id="val-level"
-            class="stat-value"
-            role="status"
-            aria-labelledby="label-level"
-            aria-live="polite"
-            aria-atomic="true"
-          >1</span>
-        </div>
-
-        <div class="stat data-display">
-          <span class="stat-label" id="label-lines" aria-hidden="true">LINES</span>
-          <span
-            id="val-lines"
-            class="stat-value"
-            role="status"
-            aria-labelledby="label-lines"
-            aria-live="polite"
-            aria-atomic="true"
-          >0</span>
-        </div>
-      </section>
-
-      <section
-        id="next-panel"
-        class="radar-panel"
-        aria-label="Prochaine pièce"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <span class="panel-title">NEXT</span>
-      </section>
-    </aside>
-  </main>
-
-  <div
-    id="game-over-msg"
-    class="system-overlay"
-    role="alertdialog"
-    aria-modal="true"
-    aria-labelledby="game-over-title"
-    aria-describedby="game-over-desc"
-    hidden
-  >
+  <div id="game-over-msg" class="system-overlay" role="alertdialog" aria-modal="true" aria-labelledby="game-over-title" aria-describedby="game-over-desc" hidden>
     <h2 id="game-over-title">GAME OVER</h2>
-    <p id="game-over-desc">ESPACE pour relancer le moteur</p>
+    <p id="game-over-desc">SPACE to restart engine</p>
   </div>
 
-  <div
-    id="pause-msg"
-    class="system-overlay"
-    role="alertdialog"
-    aria-modal="true"
-    aria-labelledby="pause-title"
-    aria-describedby="pause-desc"
-    hidden
-  >
+  <div id="pause-msg" class="system-overlay" role="alertdialog" aria-modal="true" aria-labelledby="pause-title" aria-describedby="pause-desc" hidden>
     <h2 id="pause-title">PAUSE</h2>
-    <p id="pause-desc">P pour reprendre</p>
+    <p id="pause-desc">P to resume</p>
   </div>
 
-  <div
-    id="start-modal"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="modal-title"
-  >
+  <div id="start-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <h1 id="modal-title">TETRIS // CONTROL DECK</h1>
 
-    <nav aria-label="Contrôles de la machine">
+    <nav aria-label="Machine Controls">
       <ul role="list">
         <li><kbd>←</kbd> <kbd>→</kbd> translation</li>
         <li><kbd>↑</kbd> rotation</li>
@@ -197,12 +77,7 @@
       </ul>
     </nav>
 
-    <button
-      id="play-button"
-      type="button"
-      aria-label="Démarrer la partie"
-      autofocus
-    >ENGAGE</button>
+    <button id="play-button" type="button" aria-label="Start Game" autofocus>ENGAGE</button>
   </div>
 
   <script type="importmap">
